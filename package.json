@@ -1,0 +1,13 @@
+{
+  "name": "kinetra-fitness-platform",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Kinetra fitness platform with MongoDB-backed member and booking requests",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "mongodb": "^6.12.0"
+  }
+}

@@ -54,6 +54,7 @@ const toast = document.querySelector("#toast");
 let toastTimer;
 let activeModal = "join";
 let lastFocusedElement;
+let selectedClass = "";
 
 const modalContent = {
   join: {
@@ -61,21 +62,32 @@ const modalContent = {
     description: "Create your free account to book a class and join the community.",
     submit: "Create my account",
     showName: true,
-    showMessage: false
+    showMessage: false,
+    submitDisabled: false
   },
   signin: {
     title: "Good to have<br /><span>you back.</span>",
-    description: "Sign in to book your next class and catch up with your community.",
-    submit: "Send me a sign-in link",
+    description: "Account authentication isn't connected yet. You can register for classes while sign-in is being set up.",
+    submit: "Sign-in unavailable",
     showName: false,
-    showMessage: false
+    showMessage: false,
+    submitDisabled: true
   },
   trainer: {
     title: "Let's get people<br /><span>moving.</span>",
     description: "Tell us where to reach you and a little about what you teach. Our team will be in touch.",
     submit: "Send my application",
     showName: true,
-    showMessage: true
+    showMessage: true,
+    submitDisabled: false
+  },
+  booking: {
+    title: "Save your<br /><span>spot.</span>",
+    description: "Enter your details to request a place in this class.",
+    submit: "Request my spot",
+    showName: true,
+    showMessage: false,
+    submitDisabled: false
   }
 };
 
@@ -89,6 +101,7 @@ function openModal(type) {
   messageField.hidden = !content.showMessage;
   nameField.querySelector("input").required = content.showName;
   messageField.querySelector("input").required = content.showMessage;
+  modalForm.querySelector("button[type='submit']").disabled = content.submitDisabled;
   emailField.querySelector("input").value = "";
   nameField.querySelector("input").value = "";
   messageField.querySelector("input").value = "";
@@ -120,21 +133,48 @@ document.addEventListener("keydown", event => {
   }
 });
 
-modalForm.addEventListener("submit", event => {
+modalForm.addEventListener("submit", async event => {
   event.preventDefault();
-  const messages = {
-    join: "You're on your way. Account signup is ready to connect.",
-    signin: "Check your inbox for your sign-in link.",
-    trainer: "Thanks for applying. Our trainer team will be in touch."
+  const submitButton = modalForm.querySelector("button[type='submit']");
+  const formData = new FormData(modalForm);
+  const payload = {
+    name: formData.get("name"),
+    email: formData.get("email")
   };
-  closeModal();
-  showToast(messages[activeModal]);
+
+  if (activeModal === "signin") return;
+  if (activeModal === "trainer") payload.experience = formData.get("message");
+  if (activeModal === "booking") payload.className = selectedClass;
+
+  const endpoints = {
+    join: "/api/members",
+    trainer: "/api/trainer-applications",
+    booking: "/api/bookings"
+  };
+
+  submitButton.disabled = true;
+  try {
+    const response = await fetch(endpoints[activeModal], {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "The request could not be completed.");
+    closeModal();
+    showToast(result.message);
+  } catch (error) {
+    modalDescription.textContent = error.message;
+  } finally {
+    submitButton.disabled = modalContent[activeModal].submitDisabled;
+  }
 });
 
 for (const button of document.querySelectorAll("[data-book]")) {
   button.addEventListener("click", () => {
-    openModal("join");
-    modalDescription.textContent = `Create your free account to book ${button.dataset.book} and save your spot.`;
+    selectedClass = button.dataset.book;
+    openModal("booking");
+    modalDescription.textContent = `Enter your details to request a place in ${selectedClass}.`;
   });
 }
 
