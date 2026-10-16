@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f6f7f2" />
+    <meta
+      name="description"
+      content="Find your people, book your next class, and build a stronger you with Kinetra."
+    />
+    <title>Kinetra — Find your kind of strong</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="#" aria-label="Kinetra home">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span>kinetra<span class="brand-period">.</span></span>
+      </a>
+      <button class="menu-toggle" type="button" aria-expanded="false" aria-label="Open navigation">
+        <span></span><span></span>
+      </button>
+      <nav class="main-nav" aria-label="Main navigation">
+        <a class="nav-link active" href="#classes">Find a class</a>
+        <a class="nav-link" href="#trainers">For trainers</a>
+        <a class="nav-link" href="#community">Community</a>
+      </nav>
+      <div class="header-actions">
+        <button class="button button-quiet" type="button" data-open-modal="signin">Log in</button>
+        <button class="button button-dark button-small" type="button" data-open-modal="join">Join Kinetra <span aria-hidden="true">↗</span></button>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="hero-copy">
+          <div class="eyebrow"><span class="eyebrow-dot"></span> YOUR MOVEMENT, YOUR PEOPLE</div>
+          <h1>Find your<br />kind of <span>strong.</span></h1>
+          <p class="hero-description">Good movement changes everything. Find classes you love, coaches who get you, and a community that keeps you going.</p>
+          <div class="hero-actions">
+            <a class="button button-lime" href="#classes">Explore classes <span aria-hidden="true">↗</span></a>
+            <div class="member-proof">
+              <div class="avatar-stack" aria-hidden="true">
+                <img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=80&q=80" alt="" />
+                <img src="https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=80&q=80" alt="" />
+                <img src="https://images.unsplash.com/photo-1531123897727-8f129e1688ce?auto=format&fit=crop&w=80&q=80" alt="" />
+              </div>
+              <span><strong>2,400+</strong><br />moving together</span>
+            </div>
+          </div>
+          <div class="hero-note"><span class="note-line"></span> A little better, every day.</div>
+        </div>
+        <div class="hero-visual">
+          <img class="hero-image" src="https://images.unsplash.com/photo-1534438327276-14e5300c3a48?auto=format&fit=crop&w=1400&q=90" alt="Athlete training in a sunlit, modern gym" />
+          <div class="hero-image-shade"></div>
+          <div class="floating-card next-class">
+            <div class="class-icon" aria-hidden="true">↗</div>
+            <div><span class="card-kicker">UP NEXT · 6:30 PM</span><strong>Strength, together</strong><span class="card-sub">with Maya Chen · 4 spots left</span></div>
+          </div>
+          <div class="floating-card rating-card"><span class="rating-star">✳</span><div><strong>4.9 / 5</strong><span class="card-sub">from our community</span></div></div>
+          <span class="image-caption">01 — SHOW UP FOR YOU</span>
+        </div>
+        <div class="hero-index" aria-hidden="true">KINETRA / 001</div>
+      </section>
+
+      <section class="trust-strip" aria-label="Kinetra benefits">
+        <span>MOVE WITH INTENTION</span><i></i><span>FIND YOUR PEOPLE</span><i></i><span>FEEL THE DIFFERENCE</span><i></i><span>REPEAT</span>
+      </section>
+
+      <section class="classes-section section-wrap" id="classes">
+        <div class="section-heading">
+          <div>
+            <div class="eyebrow"><span class="eyebrow-dot"></span> MAKE TODAY COUNT</div>
+            <h2>Your next <span>good thing.</span></h2>
+            <p>From first-timers to all-in. There's a place for you here.</p>
+          </div>
+          <a class="text-link desktop-link" href="#class-list">See all classes <span aria-hidden="true">↗</span></a>
+        </div>
+        <div class="class-controls">
+          <div class="filter-list" role="group" aria-label="Filter classes">
+            <button class="filter-button selected" type="button" data-filter="all">All classes</button>
+            <button class="filter-button" type="button" data-filter="strength">Strength</button>
+            <button class="filter-button" type="button" data-filter="mindful">Mindful</button>
+            <button class="filter-button" type="button" data-filter="cardio">Cardio</button>
+          </div>
+          <label class="search-box">
+            <span aria-hidden="true">⌕</span>
+            <input id="class-search" type="search" placeholder="Search classes" aria-label="Search classes" />
+            <kbd>/</kbd>
+          </label>
+        </div>
+        <div class="class-grid" id="class-list">
+          <article class="class-card" data-category="strength" data-search="the strength room strength maya chen weights">
+            <div class="class-photo photo-strength">
+              <img src="https://images.unsplash.com/photo-1583454110551-21f2fa2afe61?auto=format&fit=crop&w=900&q=85" alt="A member lifting weights during a strength workout" />
+              <span class="photo-label">STRENGTH</span><button class="save-button" aria-label="Save The Strength Room" type="button">♡</button>
+              <span class="class-duration">45 MIN</span>
+            </div>
+            <div class="class-card-body">
+              <div class="class-time">TODAY · 6:30 PM <span class="spots">4 spots left</span></div>
+              <h3>The Strength Room</h3>
+              <div class="coach-row"><img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=80&q=80" alt="" /><span>Maya Chen <span class="coach-verified" title="Verified trainer">✓</span></span><span class="class-rating">★ 4.9</span></div>
+              <button class="book-link" type="button" data-book="The Strength Room">Book your spot <span aria-hidden="true">↗</span></button>
+            </div>
+          </article>
+          <article class="class-card" data-category="mindful" data-search="slow flow yoga mindful amara james">
+            <div class="class-photo photo-yoga">
+              <img src="https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?auto=format&fit=crop&w=900&q=85" alt="A member stretching on a yoga mat in a calm studio" />
+              <span class="photo-label">MINDFUL</span><button class="save-button" aria-label="Save Slow Flow" type="button">♡</button>
+              <span class="class-duration">60 MIN</span>
+            </div>
+            <div class="class-card-body">
+              <div class="class-time">TODAY · 7:00 PM <span class="spots spots-open">8 spots left</span></div>
+              <h3>Slow Flow</h3>
+              <div class="coach-row"><img src="https://images.unsplash.com/photo-1531123897727-8f129e1688ce?auto=format&fit=crop&w=80&q=80" alt="" /><span>Amara James <span class="coach-verified" title="Verified trainer">✓</span></span><span class="class-rating">★ 5.0</span></div>
+              <button class="book-link" type="button" data-book="Slow Flow">Book your spot <span aria-hidden="true">↗</span></button>
+            </div>
+          </article>
+          <article class="class-card" data-category="cardio" data-search="pulse ride cardio cycling leo martin">
+            <div class="class-photo photo-ride">
+              <img src="https://images.unsplash.com/photo-1534258936925-c58bed479fcb?auto=format&fit=crop&w=900&q=85" alt="A high-energy indoor cycling class" />
+              <span class="photo-label">CARDIO</span><button class="save-button" aria-label="Save Pulse Ride" type="button">♡</button>
+              <span class="class-duration">40 MIN</span>
+            </div>
+            <div class="class-card-body">
+              <div class="class-time">TOMORROW · 7:15 AM <span class="spots">2 spots left</span></div>
+              <h3>Pulse Ride</h3>
+              <div class="coach-row"><img src="https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=80&q=80" alt="" /><span>Leo Martin <span class="coach-verified" title="Verified trainer">✓</span></span><span class="class-rating">★ 4.8</span></div>
+              <button class="book-link" type="button" data-book="Pulse Ride">Book your spot <span aria-hidden="true">↗</span></button>
+            </div>
+          </article>
+        </div>
+        <p class="empty-state" id="empty-state" hidden>No classes found. Try a different search or filter.</p>
+        <a class="text-link mobile-link" href="#class-list">See all classes <span aria-hidden="true">↗</span></a>
+      </section>
+
+      <section class="trainer-banner" id="trainers">
+        <div class="trainer-photo">
+          <img src="https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?auto=format&fit=crop&w=1000&q=85" alt="Fitness coach guiding a member through a workout" />
+          <span class="trainer-photo-note">GOOD COACHES<br />CHANGE EVERYTHING.</span>
+        </div>
+        <div class="trainer-copy">
+          <div class="eyebrow"><span class="eyebrow-dot"></span> FOR THE ONES WHO GET US MOVING</div>
+          <h2>Your people<br />are <span>waiting.</span></h2>
+          <p>Bring your knowledge, your energy, your own kind of coaching. We'll bring the space to grow.</p>
+          <button class="button button-dark" type="button" data-open-modal="trainer">Become a trainer <span aria-hidden="true">↗</span></button>
+          <div class="trainer-perks"><span><b>01</b> Build your community</span><span><b>02</b> Set your own schedule</span><span><b>03</b> Do what you love</span></div>
+        </div>
+      </section>
+
+      <section class="community-section section-wrap" id="community">
+        <div class="section-heading community-heading">
+          <div>
+            <div class="eyebrow"><span class="eyebrow-dot"></span> MORE THAN A WORKOUT</div>
+            <h2>Good things happen <span>together.</span></h2>
+            <p>Real talk, small wins, and the occasional sore-leg solidarity.</p>
+          </div>
+          <a class="text-link desktop-link" href="#community-posts">Visit the community <span aria-hidden="true">↗</span></a>
+        </div>
+        <div class="community-grid" id="community-posts">
+          <article class="community-card community-featured">
+            <div class="community-meta"><span class="topic-tag">GETTING STARTED</span><span>6 min read</span></div>
+            <h3>Starting over isn't starting from zero.</h3>
+            <p>After a long break, I was nervous to walk back into a gym. Here's what helped me take that first step.</p>
+            <div class="post-author"><img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=80&q=80" alt="" /><span><strong>Nina Patel</strong><small>Kinetra member · 2 days ago</small></span><span class="post-likes">♡ 24</span></div>
+          </article>
+          <article class="community-card community-quote">
+            <span class="quote-mark">“</span>
+            <blockquote>You don't have to be good at it. You just have to show up.</blockquote>
+            <span class="quote-credit">A LITTLE REMINDER FROM THE COMMUNITY</span>
+            <div class="quote-scribble" aria-hidden="true">✳</div>
+          </article>
+          <article class="community-card community-prompt">
+            <div class="prompt-icon">✳</div>
+            <span class="topic-tag">THIS WEEK'S CHECK-IN</span>
+            <h3>What's one small win you're proud of?</h3>
+            <p>Big or small, we'd love to hear it.</p>
+            <button class="text-link" type="button" data-open-modal="signin">Join the conversation <span aria-hidden="true">↗</span></button>
+          </article>
+        </div>
+        <a class="text-link mobile-link" href="#community-posts">Visit the community <span aria-hidden="true">↗</span></a>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="footer-main">
+        <div class="footer-brand">
+          <a class="brand brand-light" href="#" aria-label="Kinetra home"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><span>kinetra<span class="brand-period">.</span></span></a>
+          <p>Find your people.<br />Feel like yourself.</p>
+        </div>
+        <div class="footer-column"><span class="footer-label">EXPLORE</span><a href="#classes">Find a class</a><a href="#trainers">Meet our trainers</a><a href="#community">Community</a></div>
+        <div class="footer-column"><span class="footer-label">THE GOOD STUFF</span><a href="#classes">How it works</a><a href="#trainers">Teach with us</a><a href="#community">Our story</a></div>
+        <div class="footer-note"><span class="footer-label">A NOTE TO SELF</span><p>You're doing better<br />than you think.</p><span class="footer-spark">✳</span></div>
+      </div>
+      <div class="footer-bottom"><span>© 2025 Kinetra. Made for moving.</span><span>Be kind to yourself out there <b>♡</b></span><span><a href="#top">Instagram</a> &nbsp;·&nbsp; <a href="#top">Privacy</a></span></div>
+    </footer>
+
+    <div class="modal-backdrop" id="modal-backdrop" hidden>
+      <section class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <button class="modal-close" type="button" aria-label="Close dialog">×</button>
+        <div class="modal-symbol" aria-hidden="true">✳</div>
+        <div class="eyebrow"><span class="eyebrow-dot"></span> WELCOME TO KINETRA</div>
+        <h2 id="modal-title">Good to have<br /><span>you here.</span></h2>
+        <p class="modal-description" id="modal-description">Sign in or create your free account to book a class and join the community.</p>
+        <form id="modal-form">
+          <label class="form-field" id="name-field" hidden>Your name<input name="name" autocomplete="name" placeholder="How should we call you?" /></label>
+          <label class="form-field" id="email-field">Email address<input name="email" type="email" autocomplete="email" placeholder="you@example.com" required /></label>
+          <label class="form-field" id="message-field" hidden>Tell us a little about your coaching<input name="message" placeholder="Your experience and what you teach" /></label>
+          <button class="button button-lime modal-submit" type="submit">Continue <span aria-hidden="true">↗</span></button>
+        </form>
+        <p class="modal-footnote">No pressure. Just good things ahead.</p>
+      </section>
+    </div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>
