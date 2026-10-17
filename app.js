@@ -8,8 +8,16 @@ const emptyState = document.querySelector("#empty-state");
 const classesState = document.querySelector("#classes-state");
 const postsState = document.querySelector("#posts-state");
 const communityPosts = document.querySelector("#community-posts");
+const communityPageState = document.querySelector("#community-page-state");
+const communityPagePosts = document.querySelector("#community-page-posts");
+const forumPostState = document.querySelector("#forum-post-state");
+const forumPostContent = document.querySelector("#forum-post-content");
+const dashboardState = document.querySelector("#dashboard-state");
+const dashboardFavorites = document.querySelector("#dashboard-favorites");
+const dashboardEmpty = document.querySelector("#dashboard-empty");
 let activeFilter = "all";
 let currentPrivateClass = null;
+let currentClassFavorited = false;
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, character => ({
@@ -47,6 +55,16 @@ function formatDuration(value) {
   if (typeof value === "number" && Number.isFinite(value)) return `${value} min`;
   const text = String(value || "");
   return /^\d+$/.test(text) ? `${text} min` : text || "Varies";
+}
+
+function formatClassPrice(item) {
+  if (item.priceInMinorUnits != null) {
+    return `${(Number(item.priceInMinorUnits) / 100).toFixed(2)} ${String(item.currency || "").toUpperCase()}`;
+  }
+  if (typeof item.price === "object" && item.price !== null) {
+    return [item.price.amount, item.price.currency].filter(Boolean).join(" ");
+  }
+  return String(item.price ?? "Ask trainer");
 }
 
 function formatSchedule(value) {
@@ -128,23 +146,118 @@ function renderCategoryFilters(classes) {
   bindFilterButtons();
 }
 
-function renderLatestPosts(posts) {
-  communityPosts.innerHTML = posts.map(post => {
+function renderForumPostCards(posts, container) {
+  container.innerHTML = posts.map(post => {
     const date = post.createdAt ? new Date(post.createdAt) : null;
     const dateLabel = date && !Number.isNaN(date.valueOf())
       ? new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date)
       : "Latest";
     const content = String(post.content || "");
     const excerpt = content.length > 180 ? `${content.slice(0, 177).trimEnd()}…` : content;
-    return `<article class="community-card community-featured motion-reveal">
-      <div class="community-meta"><span class="topic-tag">${escapeHtml(post.category || "COMMUNITY")}</span><span>${escapeHtml(dateLabel)}</span></div>
-      <h3>${escapeHtml(post.title || "Community post")}</h3>
-      <p>${escapeHtml(excerpt || "A new story from the Kinetra community.")}</p>
-      <div class="post-author"><span class="author-initial" aria-hidden="true">${escapeHtml(String(post.authorName || "K").trim().charAt(0).toUpperCase())}</span><span><strong>${escapeHtml(post.authorName || "Kinetra member")}</strong><small>Community member</small></span></div>
+    const imageUrl = safeImageUrl(post.imageUrl);
+    const postUrl = `/community/${encodeURIComponent(String(post.id))}`;
+    const image = imageUrl
+      ? `<img src="${escapeHtml(imageUrl)}" alt="" loading="lazy" />`
+      : `<div class="forum-card-image-placeholder" role="img" aria-label="Kinetra community post"><span aria-hidden="true">✳</span></div>`;
+    return `<article class="community-card community-featured forum-post-card motion-reveal">
+      <a class="forum-card-image" href="${postUrl}" tabindex="-1" aria-hidden="true">${image}</a>
+      <div class="forum-card-copy">
+        <div class="community-meta"><span class="topic-tag">${escapeHtml(post.category || "COMMUNITY")}</span><span>${escapeHtml(dateLabel)}</span></div>
+        <h3><a href="${postUrl}">${escapeHtml(post.title || "Community post")}</a></h3>
+        <p>${escapeHtml(excerpt || "A new story from the Kinetra community.")}</p>
+        <div class="post-author"><span class="author-initial" aria-hidden="true">${escapeHtml(String(post.authorName || "K").trim().charAt(0).toUpperCase())}</span><span><strong>${escapeHtml(post.authorName || "Kinetra member")}</strong><small>${escapeHtml(post.authorRole || "COMMUNITY")}</small></span></div>
+        <a class="book-link forum-read-more" href="${postUrl}">Read More <span aria-hidden="true">↗</span></a>
+      </div>
     </article>`;
   }).join("");
+  observeMotion(container.querySelectorAll(".motion-reveal"));
+}
+
+function renderLatestPosts(posts) {
+  renderForumPostCards(posts, communityPosts);
   postsState.hidden = true;
-  observeMotion(communityPosts.querySelectorAll(".motion-reveal"));
+}
+
+async function loadCommunityPage() {
+  try {
+    const response = await fetch("/api/community");
+    const result = await readJsonResponse(response);
+    if (!response.ok) throw new Error(result.error || "Community posts could not be loaded.");
+    renderForumPostCards(result.posts || [], communityPagePosts);
+    if (result.posts?.length) communityPageState.hidden = true;
+    else showContentError(communityPageState, "No community posts have been published yet.");
+  } catch (error) {
+    showContentError(communityPageState, error.message);
+  }
+}
+
+async function loadForumPostPage() {
+  const postId = window.location.pathname.split("/").pop();
+  try {
+    const response = await fetch(`/api/community/${encodeURIComponent(postId)}`);
+    const result = await readJsonResponse(response);
+    if (!response.ok) throw new Error(result.error || "Community post could not be loaded.");
+    const post = result.post;
+    document.title = `${post.title} — Kinetra Community`;
+    document.querySelector("#forum-post-title").textContent = post.title;
+    document.querySelector("#forum-post-category").textContent = post.category || "COMMUNITY";
+    document.querySelector("#forum-post-author").textContent = `By ${post.authorName} · ${post.authorRole}`;
+    document.querySelector("#forum-post-body").textContent = post.content;
+    const imageContainer = document.querySelector("#forum-post-image");
+    const imageUrl = safeImageUrl(post.imageUrl);
+    if (imageUrl) {
+      const image = document.createElement("img");
+      image.src = imageUrl;
+      image.alt = post.title;
+      imageContainer.replaceChildren(image);
+    } else {
+      imageContainer.classList.add("forum-card-image-placeholder");
+      imageContainer.setAttribute("role", "img");
+      imageContainer.setAttribute("aria-label", "Kinetra community post");
+      imageContainer.textContent = "✳";
+    }
+    forumPostState.hidden = true;
+    forumPostContent.hidden = false;
+  } catch (error) {
+    showContentError(forumPostState, error.message);
+  }
+}
+
+function renderDashboardFavorites(classes) {
+  dashboardFavorites.innerHTML = classes.map(item => {
+    const imageUrl = safeImageUrl(item.imageUrl);
+    const photo = imageUrl
+      ? `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(item.name)} class" loading="lazy" />`
+      : "";
+    return `<article class="class-card motion-reveal" data-favorite-card="${escapeHtml(item.id)}">
+      <div class="class-photo">${photo}<span class="photo-label">${escapeHtml(item.category || "Fitness")}</span></div>
+      <div class="class-card-body">
+        <h3>${escapeHtml(item.name)}</h3>
+        <div class="coach-row"><span>${escapeHtml(item.trainerName)}</span><span class="class-price">${escapeHtml(formatClassPrice(item))}</span></div>
+        <a class="book-link" href="/classes/${encodeURIComponent(item.id)}">View details <span aria-hidden="true">↗</span></a>
+        <button class="book-link favorite-remove-link" type="button" data-remove-favorite="${escapeHtml(item.id)}">Remove Favorite <span aria-hidden="true">×</span></button>
+      </div>
+    </article>`;
+  }).join("");
+  dashboardEmpty.hidden = classes.length !== 0;
+  observeMotion(dashboardFavorites.querySelectorAll(".motion-reveal"));
+}
+
+async function loadDashboardPage() {
+  try {
+    const response = await fetch("/api/dashboard");
+    const result = await readJsonResponse(response);
+    if (response.status === 401) {
+      window.location.replace(`/?auth=login&returnTo=${encodeURIComponent(window.location.pathname)}`);
+      return;
+    }
+    if (!response.ok) throw new Error(result.error || "Your dashboard could not be loaded.");
+    document.querySelector("#dashboard-member-name").textContent = `${result.user.name || "member"}.`;
+    renderDashboardFavorites(result.favorites || []);
+    dashboardState.hidden = true;
+  } catch (error) {
+    showContentError(dashboardState, error.message);
+  }
 }
 
 function showContentError(element, content) {
@@ -175,11 +288,7 @@ async function loadClassDetailsPage() {
     document.querySelector("#class-detail-trainer").textContent = item.trainerName;
     document.querySelector("#class-detail-schedule").textContent = formatSchedule(item.schedule);
     document.querySelector("#class-detail-duration").textContent = formatDuration(item.duration);
-    document.querySelector("#class-detail-price").textContent = item.priceInMinorUnits != null
-      ? `${(Number(item.priceInMinorUnits) / 100).toFixed(2)} ${String(item.currency || "").toUpperCase()}`
-      : typeof item.price === "object" && item.price !== null
-        ? [item.price.amount, item.price.currency].filter(Boolean).join(" ")
-        : String(item.price ?? "Ask trainer");
+    document.querySelector("#class-detail-price").textContent = formatClassPrice(item);
     document.querySelector("#class-detail-bookings").textContent = String(item.bookingCount || 0);
     const imageUrl = safeImageUrl(item.imageUrl);
     const imageContainer = document.querySelector("#class-detail-image");
@@ -190,6 +299,7 @@ async function loadClassDetailsPage() {
       imageContainer.replaceChildren(image);
     }
     setAlreadyBooked(result.alreadyBooked);
+    setClassFavoriteState(result.favorited);
     state.hidden = true;
     content.hidden = false;
   } catch (error) {
@@ -203,6 +313,14 @@ function setAlreadyBooked(alreadyBooked) {
   button.textContent = alreadyBooked ? "Already Booked" : "Book now ↗";
   button.setAttribute("aria-disabled", String(alreadyBooked));
   button.classList.toggle("already-booked", alreadyBooked);
+}
+
+function setClassFavoriteState(favorited) {
+  currentClassFavorited = Boolean(favorited);
+  const button = document.querySelector("#class-detail-favorite");
+  if (!button) return;
+  button.textContent = currentClassFavorited ? "Remove Favorite" : "Add to Favorites";
+  button.setAttribute("aria-pressed", String(currentClassFavorited));
 }
 
 async function loadPaymentPage() {
@@ -229,11 +347,7 @@ async function loadPaymentPage() {
     document.querySelector("#payment-class-name").textContent = item.name;
     document.querySelector("#payment-class-meta").textContent = `${item.trainerName} · ${item.category} · ${formatDuration(item.duration)}`;
     document.querySelector("#payment-class-schedule").textContent = formatSchedule(item.schedule);
-    document.querySelector("#payment-class-price").textContent = item.priceInMinorUnits != null
-      ? `${(Number(item.priceInMinorUnits) / 100).toFixed(2)} ${String(item.currency || "").toUpperCase()}`
-      : typeof item.price === "object" && item.price !== null
-        ? [item.price.amount, item.price.currency].filter(Boolean).join(" ")
-        : String(item.price ?? "Ask trainer");
+    document.querySelector("#payment-class-price").textContent = formatClassPrice(item);
     summary.hidden = false;
 
     const sessionId = params.get("session_id");
@@ -245,6 +359,7 @@ async function loadPaymentPage() {
         document.querySelector("#payment-heading").textContent = "You're all set.";
         showContentError(state, "Payment succeeded and your class booking is confirmed.");
         checkoutButton.hidden = true;
+        document.querySelector("#payment-dashboard-link").hidden = false;
         return;
       }
       showContentError(state, "Payment has not completed yet. Finish checkout to confirm your booking.");
@@ -281,6 +396,18 @@ async function loadPaymentPage() {
 }
 
 async function loadHomeContent() {
+  if (document.body.dataset.page === "community") {
+    await loadCommunityPage();
+    return;
+  }
+  if (document.body.dataset.page === "forum-post") {
+    await loadForumPostPage();
+    return;
+  }
+  if (document.body.dataset.page === "dashboard") {
+    await loadDashboardPage();
+    return;
+  }
   if (document.body.dataset.page === "class-details") {
     await loadClassDetailsPage();
     return;
@@ -370,6 +497,60 @@ document.querySelector("#class-detail-book")?.addEventListener("click", async ()
     window.location.assign(`/payment?classId=${encodeURIComponent(currentPrivateClass.id)}`);
   } catch (error) {
     showToast(error.message);
+  }
+});
+
+document.querySelector("#class-detail-favorite")?.addEventListener("click", async event => {
+  if (!currentPrivateClass) return;
+  const button = event.currentTarget;
+  button.disabled = true;
+  try {
+    const response = await fetch(currentClassFavorited
+      ? `/api/favorites?classId=${encodeURIComponent(currentPrivateClass.id)}`
+      : "/api/favorites", {
+      method: currentClassFavorited ? "DELETE" : "POST",
+      headers: currentClassFavorited ? {} : { "Content-Type": "application/json" },
+      body: currentClassFavorited ? undefined : JSON.stringify({ classId: currentPrivateClass.id })
+    });
+    const result = await readJsonResponse(response);
+    if (response.status === 401) {
+      window.location.assign(`/?auth=login&returnTo=${encodeURIComponent(window.location.pathname)}`);
+      return;
+    }
+    if (response.status === 409 && result.alreadyFavorite) {
+      setClassFavoriteState(true);
+      showToast("This class is already in your favorites.");
+      return;
+    }
+    if (!response.ok) throw new Error(result.error || "Your favorites could not be updated.");
+    setClassFavoriteState(result.favorited);
+    showToast(result.message);
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    button.disabled = false;
+  }
+});
+
+dashboardFavorites?.addEventListener("click", async event => {
+  const button = event.target.closest("[data-remove-favorite]");
+  if (!button) return;
+  button.disabled = true;
+  const classId = button.dataset.removeFavorite;
+  try {
+    const response = await fetch(`/api/favorites?classId=${encodeURIComponent(classId)}`, { method: "DELETE" });
+    const result = await readJsonResponse(response);
+    if (response.status === 401) {
+      window.location.assign(`/?auth=login&returnTo=${encodeURIComponent(window.location.pathname)}`);
+      return;
+    }
+    if (!response.ok) throw new Error(result.error || "The favorite could not be removed.");
+    dashboardFavorites.querySelector(`[data-favorite-card="${CSS.escape(classId)}"]`)?.remove();
+    dashboardEmpty.hidden = dashboardFavorites.children.length !== 0;
+    showToast(result.message);
+  } catch (error) {
+    showToast(error.message);
+    button.disabled = false;
   }
 });
 

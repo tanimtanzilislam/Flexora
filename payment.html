@@ -25,7 +25,8 @@
       <nav class="main-nav" aria-label="Main navigation">
         <a class="nav-link active" href="/classes" aria-current="page">Find a class</a>
         <a class="nav-link" href="/#trainers">For trainers</a>
-        <a class="nav-link" href="/#community">Community</a>
+        <a class="nav-link" href="/community">Community</a>
+        <a class="nav-link" href="/dashboard">Dashboard</a>
       </nav>
       <div class="header-actions">
         <button class="button button-quiet" type="button" data-open-modal="signin">Log in</button>
@@ -46,6 +47,7 @@
             <p id="payment-class-schedule"></p>
             <strong id="payment-class-price"></strong>
           </div>
+          <a class="button button-dark payment-dashboard-link" id="payment-dashboard-link" href="/dashboard" hidden>Go to your dashboard <span aria-hidden="true">↗</span></a>
           <button class="button button-lime modal-submit" id="checkout-button" type="button" disabled>Continue to secure payment <span aria-hidden="true">↗</span></button>
           <p class="modal-footnote">Payment is processed securely by Stripe. Your booking is confirmed after payment succeeds.</p>
         </div>
@@ -55,8 +57,8 @@
     <footer class="site-footer">
       <div class="footer-main">
         <div class="footer-brand"><a class="brand brand-light" href="/" aria-label="Kinetra home"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><span>kinetra<span class="brand-period">.</span></span></a><p>Find your people.<br />Feel like yourself.</p></div>
-        <div class="footer-column"><span class="footer-label">EXPLORE</span><a href="/classes">Find a class</a><a href="/#trainers">Meet our trainers</a><a href="/#community">Community</a></div>
-        <div class="footer-column"><span class="footer-label">THE GOOD STUFF</span><a href="/">Home</a><a href="/#trainers">Teach with us</a><a href="/#community">Our story</a></div>
+        <div class="footer-column"><span class="footer-label">EXPLORE</span><a href="/classes">Find a class</a><a href="/community">Community forum</a><a href="/#trainers">Meet our trainers</a></div>
+        <div class="footer-column"><span class="footer-label">THE GOOD STUFF</span><a href="/">Home</a><a href="/dashboard">Your dashboard</a><a href="/#trainers">Teach with us</a></div>
         <div class="footer-note"><span class="footer-label">A NOTE TO SELF</span><p>You're doing better<br />than you think.</p><span class="footer-spark">✳</span></div>
       </div>
       <div class="footer-bottom"><span>© 2025 Kinetra. Made for moving.</span><span>Be kind to yourself out there <b>♡</b></span><span><a href="/">Instagram</a> &nbsp;·&nbsp; <a href="/">Privacy</a></span></div>

@@ -19,8 +19,8 @@ const MAX_BODY_SIZE = 10 * 1024;
 const SESSION_COOKIE = "kinetra_session";
 const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
 const PASSWORD_MIN_LENGTH = 10;
-const PUBLIC_FILES = new Set(["/", "/classes", "/index.html", "/classes.html", "/styles.css", "/app.bundle.js"]);
-const PRIVATE_FILES = new Set(["/class-details.html", "/payment.html"]);
+const PUBLIC_FILES = new Set(["/", "/classes", "/community", "/index.html", "/classes.html", "/community.html", "/forum-post.html", "/styles.css", "/app.bundle.js"]);
+const PRIVATE_FILES = new Set(["/class-details.html", "/payment.html", "/dashboard.html"]);
 const MIME_TYPES = {
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",
@@ -116,6 +116,42 @@ function ensureSameOrigin(request) {
 
 function approvedClassFilter(id) {
   return { _id: id, status: { $regex: "^approved$", $options: "i" } };
+}
+
+function publishedForumFilter() {
+  return {
+    $and: [
+      {
+        $or: [
+          { status: { $in: ["published", "approved"] } },
+          { status: { $exists: false } },
+          { isPublished: true }
+        ]
+      },
+      {
+        $or: [
+          { authorRole: { $regex: "^(trainer|admin)$", $options: "i" } },
+          { authorType: { $regex: "^(trainer|admin)$", $options: "i" } },
+          { createdByRole: { $regex: "^(trainer|admin)$", $options: "i" } },
+          { role: { $regex: "^(trainer|admin)$", $options: "i" } },
+          { "author.role": { $regex: "^(trainer|admin)$", $options: "i" } }
+        ]
+      }
+    ]
+  };
+}
+
+function serializeForumPost(item) {
+  return {
+    id: item._id.toString(),
+    title: item.title || "Community post",
+    content: item.content || item.body || item.description || "",
+    authorName: item.authorName || item.author?.name || "Kinetra member",
+    authorRole: item.authorRole || item.authorType || item.createdByRole || item.role || item.author?.role || "COMMUNITY",
+    category: item.category || "COMMUNITY",
+    imageUrl: item.imageUrl || item.image || item.coverImage || "",
+    createdAt: item.createdAt || null
+  };
 }
 
 function serializeClass(item) {
@@ -214,7 +250,8 @@ function validEmail(value) {
 }
 
 async function serveStatic(request, response, pathname, privatePage = false) {
-  if (!PUBLIC_FILES.has(pathname) && !(privatePage && PRIVATE_FILES.has(pathname))) {
+  const forumPostPage = /^\/community\/[a-f\d]{24}$/i.test(pathname);
+  if (!PUBLIC_FILES.has(pathname) && !forumPostPage && !(privatePage && PRIVATE_FILES.has(pathname))) {
     sendJson(response, 404, { error: "Not found." });
     return;
   }
@@ -222,8 +259,14 @@ async function serveStatic(request, response, pathname, privatePage = false) {
     ? "/index.html"
     : pathname === "/classes"
       ? "/classes.html"
+      : pathname === "/community"
+        ? "/community.html"
       : pathname === "/payment"
         ? "/payment.html"
+        : pathname === "/dashboard"
+          ? "/dashboard.html"
+          : /^\/community\/[a-f\d]{24}$/i.test(pathname)
+            ? "/forum-post.html"
         : pathname;
   const filePath = path.resolve(PUBLIC_DIR, `.${requestedPath}`);
   if (!filePath.startsWith(`${PUBLIC_DIR}${path.sep}`)) {
@@ -259,6 +302,7 @@ async function handleApi(request, response, pathname, database) {
   const members = database.collection("members");
   const applications = database.collection("trainerApplications");
   const bookings = database.collection("bookings");
+  const favorites = database.collection("favorites");
 
   if (request.method === "GET" && pathname === "/api/auth/me") {
     const user = await currentUser(request, database);
@@ -333,16 +377,24 @@ async function handleApi(request, response, pathname, database) {
       sendJson(response, 404, { error: "Approved class not found." });
       return;
     }
-    const alreadyBooked = await bookings.findOne({
-      memberId: new ObjectId(user.id),
-      classId: classItem._id,
-      status: { $in: ["paid", "confirmed", "succeeded"] }
+    const memberId = new ObjectId(user.id);
+    const [booking, favorite, bookingCount] = await Promise.all([
+      bookings.findOne({
+        memberId,
+        classId: classItem._id,
+        status: { $in: ["paid", "confirmed", "succeeded"] }
+      }),
+      favorites.findOne({ memberId, classId: classItem._id }),
+      bookings.countDocuments({
+        className: classItem.name || classItem.className || classItem.title,
+        status: { $nin: ["cancelled", "rejected"] }
+      })
+    ]);
+    sendJson(response, 200, {
+      class: { ...serializeClass(classItem), bookingCount },
+      alreadyBooked: Boolean(booking),
+      favorited: Boolean(favorite)
     });
-    const bookingCount = await bookings.countDocuments({
-      className: classItem.name || classItem.className || classItem.title,
-      status: { $nin: ["cancelled", "rejected"] }
-    });
-    sendJson(response, 200, { class: { ...serializeClass(classItem), bookingCount }, alreadyBooked: Boolean(alreadyBooked) });
     return;
   }
 
@@ -368,6 +420,113 @@ async function handleApi(request, response, pathname, database) {
       status: { $in: ["paid", "confirmed", "succeeded"] }
     });
     sendJson(response, 200, { alreadyBooked: Boolean(booking) });
+    return;
+  }
+
+  if (request.method === "GET" && pathname === "/api/favorites") {
+    const user = await currentUser(request, database);
+    if (!user) {
+      sendJson(response, 401, { error: "Please log in to view your favorite classes." });
+      return;
+    }
+    const saved = await favorites.find({ memberId: new ObjectId(user.id) }).toArray();
+    const classIds = saved.map(item => item.classId);
+    const classes = classIds.length
+      ? await database.collection("classes").find({
+        _id: { $in: classIds },
+        status: { $regex: "^approved$", $options: "i" }
+      }).toArray()
+      : [];
+    sendJson(response, 200, { favorites: classes.map(serializeClass) });
+    return;
+  }
+
+  if (request.method === "POST" && pathname === "/api/favorites") {
+    const user = await currentUser(request, database);
+    if (!user) {
+      sendJson(response, 401, { error: "Please log in to save favorite classes." });
+      return;
+    }
+    const body = await readJson(request);
+    if (!ObjectId.isValid(body.classId || "")) {
+      sendJson(response, 400, { error: "A valid class is required." });
+      return;
+    }
+    const classId = new ObjectId(body.classId);
+    const classItem = await database.collection("classes").findOne(approvedClassFilter(classId));
+    if (!classItem) {
+      sendJson(response, 404, { error: "Approved class not found." });
+      return;
+    }
+    const memberId = new ObjectId(user.id);
+    if (await favorites.findOne({ memberId, classId })) {
+      sendJson(response, 409, { error: "This class is already in your favorites.", alreadyFavorite: true });
+      return;
+    }
+    try {
+      await favorites.insertOne({ memberId, classId, createdAt: new Date() });
+    } catch (error) {
+      if (error.code !== 11000) throw error;
+      sendJson(response, 409, { error: "This class is already in your favorites.", alreadyFavorite: true });
+      return;
+    }
+    sendJson(response, 201, { message: "Successfully added to your favorites!", favorited: true });
+    return;
+  }
+
+  if (request.method === "DELETE" && pathname === "/api/favorites") {
+    const user = await currentUser(request, database);
+    if (!user) {
+      sendJson(response, 401, { error: "Please log in to manage your favorite classes." });
+      return;
+    }
+    const classId = new URL(request.url, APP_BASE_URL).searchParams.get("classId");
+    if (!ObjectId.isValid(classId || "")) {
+      sendJson(response, 400, { error: "A valid class is required." });
+      return;
+    }
+    await favorites.deleteOne({ memberId: new ObjectId(user.id), classId: new ObjectId(classId) });
+    sendJson(response, 200, { message: "Removed from your favorites.", favorited: false });
+    return;
+  }
+
+  const forumPostMatch = pathname.match(/^\/api\/community\/([a-f\d]{24})$/i);
+  if (request.method === "GET" && forumPostMatch) {
+    const item = await database.collection("forumPosts").findOne({
+      ...publishedForumFilter(),
+      _id: new ObjectId(forumPostMatch[1])
+    });
+    if (!item) {
+      sendJson(response, 404, { error: "Community post not found." });
+      return;
+    }
+    sendJson(response, 200, { post: serializeForumPost(item) });
+    return;
+  }
+
+  if (request.method === "GET" && pathname === "/api/community") {
+    const posts = await database.collection("forumPosts").find(publishedForumFilter(), {
+      projection: { title: 1, content: 1, body: 1, description: 1, authorName: 1, authorRole: 1, authorType: 1, createdByRole: 1, role: 1, "author.name": 1, "author.role": 1, category: 1, imageUrl: 1, image: 1, coverImage: 1, createdAt: 1 }
+    }).sort({ createdAt: -1 }).limit(50).toArray();
+    sendJson(response, 200, { posts: posts.map(serializeForumPost) });
+    return;
+  }
+
+  if (request.method === "GET" && pathname === "/api/dashboard") {
+    const user = await currentUser(request, database);
+    if (!user) {
+      sendJson(response, 401, { error: "Please log in to view your dashboard." });
+      return;
+    }
+    const saved = await favorites.find({ memberId: new ObjectId(user.id) }).toArray();
+    const classIds = saved.map(item => item.classId);
+    const classes = classIds.length
+      ? await database.collection("classes").find({
+        _id: { $in: classIds },
+        status: { $regex: "^approved$", $options: "i" }
+      }).toArray()
+      : [];
+    sendJson(response, 200, { user, favorites: classes.map(serializeClass) });
     return;
   }
 
@@ -468,24 +627,11 @@ async function handleApi(request, response, pathname, database) {
           }
         }
       ]).toArray(),
-      database.collection("forumPosts").find({
-        $or: [
-          { status: { $in: ["published", "approved"] } },
-          { status: { $exists: false } },
-          { isPublished: true }
-        ]
-      }, {
-        projection: { title: 1, content: 1, body: 1, authorName: 1, "author.name": 1, category: 1, createdAt: 1 }
+      database.collection("forumPosts").find(publishedForumFilter(), {
+        projection: { title: 1, content: 1, body: 1, description: 1, authorName: 1, authorRole: 1, authorType: 1, createdByRole: 1, role: 1, "author.name": 1, "author.role": 1, category: 1, imageUrl: 1, image: 1, coverImage: 1, createdAt: 1 }
       }).sort({ createdAt: -1 }).limit(4).toArray()
     ]);
-    const latestPosts = posts.map(item => ({
-      id: item._id.toString(),
-      title: item.title || "Community post",
-      content: item.content || item.body || "",
-      authorName: item.authorName || item.author?.name || "Kinetra member",
-      category: item.category || "COMMUNITY",
-      createdAt: item.createdAt || null
-    }));
+    const latestPosts = posts.map(serializeForumPost);
 
     sendJson(response, 200, { featuredClasses, latestPosts });
     return;
@@ -683,7 +829,7 @@ async function handleApi(request, response, pathname, database) {
     return;
   }
 
-  if (request.method !== "POST") {
+  if (!["POST", "DELETE"].includes(request.method)) {
     sendJson(response, 405, { error: "Method not allowed." });
     return;
   }
@@ -790,6 +936,7 @@ async function main() {
     database.collection("forumPosts").createIndex({ createdAt: -1 }),
     database.collection("sessions").createIndex({ tokenHash: 1 }, { unique: true }),
     database.collection("sessions").createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
+    database.collection("favorites").createIndex({ memberId: 1, classId: 1 }, { unique: true }),
     database.collection("bookings").createIndex(
       { memberId: 1, classId: 1 },
       { unique: true, partialFilterExpression: { memberId: { $type: "objectId" }, classId: { $type: "objectId" } } }
@@ -801,9 +948,10 @@ async function main() {
       const url = new URL(request.url, `http://${request.headers.host || "localhost"}`);
       const privateClassRoute = request.method === "GET" && url.pathname.match(/^\/classes\/([a-f\d]{24})$/i);
       const privatePaymentRoute = request.method === "GET" && url.pathname === "/payment";
+      const privateDashboardRoute = request.method === "GET" && url.pathname === "/dashboard";
       if (request.method === "POST" && url.pathname === "/api/stripe/webhook") {
         await handleStripeWebhook(request, response, database);
-      } else if (privateClassRoute || privatePaymentRoute) {
+      } else if (privateClassRoute || privatePaymentRoute || privateDashboardRoute) {
         const user = await currentUser(request, database);
         if (!user) {
           const returnTo = `${url.pathname}${url.search}`;
@@ -813,10 +961,11 @@ async function main() {
           });
           response.end();
         } else {
-          await serveStatic(request, response, privateClassRoute ? "/class-details.html" : "/payment", true);
+          const privatePath = privateClassRoute ? "/class-details.html" : privatePaymentRoute ? "/payment.html" : "/dashboard.html";
+          await serveStatic(request, response, privatePath, true);
         }
       } else if (url.pathname.startsWith("/api/")) {
-        if (request.method === "POST" && url.pathname !== "/api/stripe/webhook") ensureSameOrigin(request);
+        if (["POST", "DELETE"].includes(request.method) && url.pathname !== "/api/stripe/webhook") ensureSameOrigin(request);
         await handleApi(request, response, url.pathname, database);
       } else if (request.method === "GET" || request.method === "HEAD") {
         await serveStatic(request, response, url.pathname);
