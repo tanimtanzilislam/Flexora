@@ -154,26 +154,11 @@
         <form id="modal-form">
           <label class="form-field" id="name-field" hidden>Your name<input name="name" autocomplete="name" placeholder="How should we call you?" /></label>
           <label class="form-field" id="email-field">Email address<input name="email" type="email" autocomplete="email" placeholder="you@example.com" required /></label>
+          <label class="form-field" id="password-field" hidden>Password<input name="password" type="password" autocomplete="current-password" minlength="10" maxlength="128" placeholder="At least 10 characters" /></label>
           <label class="form-field" id="message-field" hidden>Tell us a little about your coaching<input name="message" placeholder="Your experience and what you teach" /></label>
           <button class="button button-lime modal-submit" type="submit">Continue <span aria-hidden="true">↗</span></button>
         </form>
         <p class="modal-footnote">No pressure. Just good things ahead.</p>
-      </section>
-    </div>
-    <div class="modal-backdrop" id="class-details-backdrop" hidden>
-      <section class="modal class-details-modal" role="dialog" aria-modal="true" aria-labelledby="class-details-title">
-        <button class="modal-close" id="class-details-close" type="button" aria-label="Close class details">×</button>
-        <div class="eyebrow"><span class="eyebrow-dot"></span> MEMBER FAVORITE</div>
-        <h2 id="class-details-title"></h2>
-        <p class="modal-description" id="class-details-description"></p>
-        <dl class="class-details-list">
-          <div><dt>Trainer</dt><dd id="class-details-trainer"></dd></div>
-          <div><dt>Category</dt><dd id="class-details-category"></dd></div>
-          <div><dt>Price</dt><dd id="class-details-price"></dd></div>
-          <div><dt>Duration</dt><dd id="class-details-duration"></dd></div>
-          <div><dt>Bookings</dt><dd id="class-details-bookings"></dd></div>
-        </dl>
-        <button class="button button-lime modal-submit" id="class-details-book" type="button">Book this class <span aria-hidden="true">↗</span></button>
       </section>
     </div>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>

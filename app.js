@@ -8,18 +8,8 @@ const emptyState = document.querySelector("#empty-state");
 const classesState = document.querySelector("#classes-state");
 const postsState = document.querySelector("#posts-state");
 const communityPosts = document.querySelector("#community-posts");
-const classDetailsBackdrop = document.querySelector("#class-details-backdrop");
-const classDetailsTitle = document.querySelector("#class-details-title");
-const classDetailsDescription = document.querySelector("#class-details-description");
-const classDetailsTrainer = document.querySelector("#class-details-trainer");
-const classDetailsCategory = document.querySelector("#class-details-category");
-const classDetailsPrice = document.querySelector("#class-details-price");
-const classDetailsDuration = document.querySelector("#class-details-duration");
-const classDetailsBookings = document.querySelector("#class-details-bookings");
-const classDetailsBook = document.querySelector("#class-details-book");
-const classDetails = new Map();
 let activeFilter = "all";
-let classDetailsReturnFocus = null;
+let currentPrivateClass = null;
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, character => ({
@@ -59,6 +49,26 @@ function formatDuration(value) {
   return /^\d+$/.test(text) ? `${text} min` : text || "Varies";
 }
 
+function formatSchedule(value) {
+  if (!value) return "Schedule to be announced";
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) {
+    return value.map(entry => {
+      if (typeof entry === "string") return entry;
+      if (entry && typeof entry === "object") {
+        return [entry.day || entry.date, entry.time || entry.startTime, entry.endTime ? `– ${entry.endTime}` : ""]
+          .filter(Boolean)
+          .join(" ");
+      }
+      return "";
+    }).filter(Boolean).join(" · ") || "Schedule to be announced";
+  }
+  if (typeof value === "object") {
+    return Object.entries(value).map(([day, time]) => `${day}: ${typeof time === "string" ? time : JSON.stringify(time)}`).join(" · ");
+  }
+  return "Schedule to be announced";
+}
+
 async function readJsonResponse(response) {
   if (!response.headers.get("content-type")?.includes("application/json")) {
     throw new Error("The server returned an invalid response. Please try again.");
@@ -68,7 +78,6 @@ async function readJsonResponse(response) {
 
 function renderClasses(classes) {
   if (document.body.dataset.page === "classes") renderCategoryFilters(classes);
-  classDetails.clear();
   classList.innerHTML = classes.map(item => {
     const category = String(item.category || "Fitness");
     const imageUrl = safeImageUrl(item.imageUrl);
@@ -86,7 +95,6 @@ function renderClasses(classes) {
       description: String(item.description || "A welcoming class led by a Kinetra trainer."),
       bookingCount: Number.isFinite(Number(item.bookingCount)) ? Number(item.bookingCount) : 0
     };
-    classDetails.set(String(item.id), details);
     const searchText = `${details.name} ${details.trainerName} ${category}`.toLowerCase();
     const cardCategory = document.body.dataset.page === "classes"
       ? categorySlug(category)
@@ -103,7 +111,7 @@ function renderClasses(classes) {
         <div class="class-time"><span>${document.body.dataset.page === "classes" ? "APPROVED CLASS" : "FEATURED CLASS"}</span><span class="spots">${details.bookingCount} ${details.bookingCount === 1 ? "booking" : "bookings"}</span></div>
         <h3>${escapeHtml(details.name)}</h3>
         <div class="coach-row"><span>${escapeHtml(details.trainerName)}</span><span class="class-price">${escapeHtml(details.price)}</span></div>
-        <button class="book-link" type="button" data-class-details="${escapeHtml(item.id)}">View class details <span aria-hidden="true">↗</span></button>
+        <a class="book-link" href="/classes/${encodeURIComponent(String(item.id))}">View details <span aria-hidden="true">↗</span></a>
       </div>
     </article>`;
   }).join("");
@@ -140,11 +148,147 @@ function renderLatestPosts(posts) {
 }
 
 function showContentError(element, content) {
+  if (!element) return;
   element.textContent = content;
   element.hidden = false;
 }
 
+async function loadClassDetailsPage() {
+  const classId = window.location.pathname.split("/").pop();
+  const state = document.querySelector("#class-detail-state");
+  const content = document.querySelector("#class-detail-content");
+  try {
+    const response = await fetch(`/api/classes/${encodeURIComponent(classId)}`);
+    const result = await readJsonResponse(response);
+    if (response.status === 401) {
+      window.location.replace(`/?auth=login&returnTo=${encodeURIComponent(window.location.pathname)}`);
+      return;
+    }
+    if (!response.ok) throw new Error(result.error || "Class details could not be loaded.");
+    const item = result.class;
+    if (!item) throw new Error("Approved class not found.");
+    currentPrivateClass = item;
+    document.title = `${item.name} — Kinetra`;
+    document.querySelector("#class-detail-name").textContent = item.name;
+    document.querySelector("#class-detail-category").textContent = item.category;
+    document.querySelector("#class-detail-description").textContent = item.description || "A welcoming class led by a Kinetra trainer.";
+    document.querySelector("#class-detail-trainer").textContent = item.trainerName;
+    document.querySelector("#class-detail-schedule").textContent = formatSchedule(item.schedule);
+    document.querySelector("#class-detail-duration").textContent = formatDuration(item.duration);
+    document.querySelector("#class-detail-price").textContent = item.priceInMinorUnits != null
+      ? `${(Number(item.priceInMinorUnits) / 100).toFixed(2)} ${String(item.currency || "").toUpperCase()}`
+      : typeof item.price === "object" && item.price !== null
+        ? [item.price.amount, item.price.currency].filter(Boolean).join(" ")
+        : String(item.price ?? "Ask trainer");
+    document.querySelector("#class-detail-bookings").textContent = String(item.bookingCount || 0);
+    const imageUrl = safeImageUrl(item.imageUrl);
+    const imageContainer = document.querySelector("#class-detail-image");
+    if (imageUrl) {
+      const image = document.createElement("img");
+      image.src = imageUrl;
+      image.alt = `${item.name} class`;
+      imageContainer.replaceChildren(image);
+    }
+    setAlreadyBooked(result.alreadyBooked);
+    state.hidden = true;
+    content.hidden = false;
+  } catch (error) {
+    showContentError(state, error.message);
+  }
+}
+
+function setAlreadyBooked(alreadyBooked) {
+  const button = document.querySelector("#class-detail-book");
+  if (!button) return;
+  button.textContent = alreadyBooked ? "Already Booked" : "Book now ↗";
+  button.setAttribute("aria-disabled", String(alreadyBooked));
+  button.classList.toggle("already-booked", alreadyBooked);
+}
+
+async function loadPaymentPage() {
+  const params = new URLSearchParams(window.location.search);
+  const classId = params.get("classId");
+  const state = document.querySelector("#payment-state");
+  const checkoutButton = document.querySelector("#checkout-button");
+  const summary = document.querySelector("#payment-class-summary");
+  if (!classId) {
+    showContentError(state, "A class must be selected before checkout.");
+    return;
+  }
+  document.querySelector("#payment-back-link").href = `/classes/${encodeURIComponent(classId)}`;
+
+  try {
+    const response = await fetch(`/api/classes/${encodeURIComponent(classId)}`);
+    const result = await readJsonResponse(response);
+    if (response.status === 401) {
+      window.location.replace(`/?auth=login&returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`);
+      return;
+    }
+    if (!response.ok) throw new Error(result.error || "Class details could not be loaded.");
+    const item = result.class;
+    document.querySelector("#payment-class-name").textContent = item.name;
+    document.querySelector("#payment-class-meta").textContent = `${item.trainerName} · ${item.category} · ${formatDuration(item.duration)}`;
+    document.querySelector("#payment-class-schedule").textContent = formatSchedule(item.schedule);
+    document.querySelector("#payment-class-price").textContent = item.priceInMinorUnits != null
+      ? `${(Number(item.priceInMinorUnits) / 100).toFixed(2)} ${String(item.currency || "").toUpperCase()}`
+      : typeof item.price === "object" && item.price !== null
+        ? [item.price.amount, item.price.currency].filter(Boolean).join(" ")
+        : String(item.price ?? "Ask trainer");
+    summary.hidden = false;
+
+    const sessionId = params.get("session_id");
+    if (sessionId) {
+      const verifyResponse = await fetch(`/api/checkout/verify?session_id=${encodeURIComponent(sessionId)}`);
+      const verification = await readJsonResponse(verifyResponse);
+      if (!verifyResponse.ok) throw new Error(verification.error || "Payment could not be verified.");
+      if (verification.paid) {
+        document.querySelector("#payment-heading").textContent = "You're all set.";
+        showContentError(state, "Payment succeeded and your class booking is confirmed.");
+        checkoutButton.hidden = true;
+        return;
+      }
+      showContentError(state, "Payment has not completed yet. Finish checkout to confirm your booking.");
+    } else if (params.get("result") === "cancelled") {
+      showContentError(state, "Checkout was cancelled. Your class is not booked yet.");
+    } else {
+      state.hidden = true;
+    }
+    checkoutButton.disabled = false;
+    checkoutButton.addEventListener("click", async () => {
+      checkoutButton.disabled = true;
+      try {
+        const checkoutResponse = await fetch("/api/checkout/session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ classId })
+        });
+        const checkoutResult = await readJsonResponse(checkoutResponse);
+        if (checkoutResponse.status === 409 && checkoutResult.alreadyBooked) {
+          showToast("You have already booked this class.");
+          checkoutButton.textContent = "Already Booked";
+          return;
+        }
+        if (!checkoutResponse.ok) throw new Error(checkoutResult.error || "Checkout could not be started.");
+        window.location.assign(checkoutResult.url);
+      } catch (error) {
+        showContentError(state, error.message);
+        checkoutButton.disabled = false;
+      }
+    });
+  } catch (error) {
+    showContentError(state, error.message);
+  }
+}
+
 async function loadHomeContent() {
+  if (document.body.dataset.page === "class-details") {
+    await loadClassDetailsPage();
+    return;
+  }
+  if (document.body.dataset.page === "payment") {
+    await loadPaymentPage();
+    return;
+  }
   try {
     const isClassesPage = document.body.dataset.page === "classes";
     const response = await fetch(isClassesPage ? "/api/classes" : "/api/home");
@@ -184,6 +328,7 @@ function filterClasses() {
 }
 
 function bindFilterButtons() {
+  if (!filterContainer) return;
   filterButtons = [...filterContainer.querySelectorAll(".filter-button")];
   for (const button of filterButtons) {
     button.addEventListener("click", () => {
@@ -200,44 +345,32 @@ function bindFilterButtons() {
 }
 bindFilterButtons();
 
-searchInput.addEventListener("input", filterClasses);
+searchInput?.addEventListener("input", filterClasses);
 
-classList.addEventListener("click", event => {
-  const detailsButton = event.target.closest("[data-class-details]");
-  if (!detailsButton) return;
-  const item = classDetails.get(detailsButton.dataset.classDetails);
-  if (!item) return;
-
-  classDetailsReturnFocus = detailsButton;
-  classDetailsTitle.textContent = item.name;
-  classDetailsDescription.textContent = item.description;
-  classDetailsTrainer.textContent = item.trainerName;
-  classDetailsCategory.textContent = item.category;
-  classDetailsPrice.textContent = item.price;
-  classDetailsDuration.textContent = item.duration;
-  classDetailsBookings.textContent = String(item.bookingCount);
-  classDetailsBackdrop.hidden = false;
-  document.body.classList.add("modal-open");
-  document.querySelector("#class-details-close").focus();
-});
-
-function closeClassDetails() {
-  classDetailsBackdrop.hidden = true;
-  document.body.classList.remove("modal-open");
-  if (classDetailsReturnFocus instanceof HTMLElement) classDetailsReturnFocus.focus();
-}
-
-document.querySelector("#class-details-close").addEventListener("click", closeClassDetails);
-classDetailsBackdrop.addEventListener("click", event => {
-  if (event.target === classDetailsBackdrop) closeClassDetails();
-});
-classDetailsBook.addEventListener("click", () => {
-  const item = classDetails.get(classDetailsReturnFocus?.dataset.classDetails);
-  if (!item) return;
-  selectedClass = item.name;
-  classDetailsBackdrop.hidden = true;
-  openModal("booking", classDetailsReturnFocus);
-  modalDescription.textContent = `Enter your details to request a place in ${selectedClass}.`;
+document.querySelector("#class-detail-book")?.addEventListener("click", async () => {
+  if (!currentPrivateClass) return;
+  const button = document.querySelector("#class-detail-book");
+  if (button.getAttribute("aria-disabled") === "true") {
+    showToast("You have already booked this class.");
+    return;
+  }
+  try {
+    const response = await fetch(`/api/bookings/check?classId=${encodeURIComponent(currentPrivateClass.id)}`);
+    const result = await readJsonResponse(response);
+    if (response.status === 401) {
+      window.location.assign(`/?auth=login&returnTo=${encodeURIComponent(window.location.pathname)}`);
+      return;
+    }
+    if (!response.ok) throw new Error(result.error || "Booking status could not be checked.");
+    if (result.alreadyBooked) {
+      setAlreadyBooked(true);
+      showToast("You have already booked this class.");
+      return;
+    }
+    window.location.assign(`/payment?classId=${encodeURIComponent(currentPrivateClass.id)}`);
+  } catch (error) {
+    showToast(error.message);
+  }
 });
 
 const backdrop = document.querySelector("#modal-backdrop");
@@ -245,45 +378,40 @@ const modalTitle = document.querySelector("#modal-title");
 const modalDescription = document.querySelector("#modal-description");
 const nameField = document.querySelector("#name-field");
 const emailField = document.querySelector("#email-field");
+const passwordField = document.querySelector("#password-field");
 const messageField = document.querySelector("#message-field");
 const modalForm = document.querySelector("#modal-form");
 const toast = document.querySelector("#toast");
 let toastTimer;
 let activeModal = "join";
 let lastFocusedElement;
-let selectedClass = "";
 
 const modalContent = {
   join: {
     title: "Good to have<br /><span>you here.</span>",
-    description: "Create your free account to book a class and join the community.",
+    description: "Create your Kinetra account to view class details and book your next session.",
     submit: "Create my account",
     showName: true,
+    showPassword: true,
     showMessage: false,
     submitDisabled: false
   },
   signin: {
     title: "Good to have<br /><span>you back.</span>",
-    description: "Account authentication isn't connected yet. You can register for classes while sign-in is being set up.",
-    submit: "Sign-in unavailable",
+    description: "Log in to access private class details and manage your bookings.",
+    submit: "Log in",
     showName: false,
+    showPassword: true,
     showMessage: false,
-    submitDisabled: true
+    submitDisabled: false
   },
   trainer: {
     title: "Let's get people<br /><span>moving.</span>",
     description: "Tell us where to reach you and a little about what you teach. Our team will be in touch.",
     submit: "Send my application",
     showName: true,
+    showPassword: false,
     showMessage: true,
-    submitDisabled: false
-  },
-  booking: {
-    title: "Save your<br /><span>spot.</span>",
-    description: "Enter your details to request a place in this class.",
-    submit: "Request my spot",
-    showName: true,
-    showMessage: false,
     submitDisabled: false
   }
 };
@@ -295,17 +423,21 @@ function openModal(type, returnFocusTo = document.activeElement) {
   modalTitle.innerHTML = content.title;
   modalDescription.textContent = content.description;
   nameField.hidden = !content.showName;
+  passwordField.hidden = !content.showPassword;
   messageField.hidden = !content.showMessage;
   nameField.querySelector("input").required = content.showName;
+  passwordField.querySelector("input").required = content.showPassword;
+  passwordField.querySelector("input").autocomplete = type === "signin" ? "current-password" : "new-password";
   messageField.querySelector("input").required = content.showMessage;
   modalForm.querySelector("button[type='submit']").disabled = content.submitDisabled;
   emailField.querySelector("input").value = "";
   nameField.querySelector("input").value = "";
+  passwordField.querySelector("input").value = "";
   messageField.querySelector("input").value = "";
   modalForm.querySelector("button[type='submit']").innerHTML = `${content.submit} <span aria-hidden="true">↗</span>`;
   backdrop.hidden = false;
   document.body.classList.add("modal-open");
-  (content.showName ? nameField.querySelector("input") : emailField.querySelector("input")).focus();
+  (content.showName ? nameField.querySelector("input") : content.showPassword ? passwordField.querySelector("input") : emailField.querySelector("input")).focus();
 }
 
 function closeModal() {
@@ -324,8 +456,7 @@ backdrop.addEventListener("click", event => {
 });
 document.addEventListener("keydown", event => {
   if (event.key === "Escape" && !backdrop.hidden) closeModal();
-  if (event.key === "Escape" && !classDetailsBackdrop.hidden) closeClassDetails();
-  if (event.key === "/" && backdrop.hidden && classDetailsBackdrop.hidden && !["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) {
+  if (event.key === "/" && backdrop.hidden && searchInput && !["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) {
     event.preventDefault();
     searchInput.focus();
   }
@@ -338,17 +469,15 @@ modalForm.addEventListener("submit", async event => {
   const formData = new FormData(modalForm);
   const payload = {
     name: formData.get("name"),
-    email: formData.get("email")
+    email: formData.get("email"),
+    password: formData.get("password")
   };
 
-  if (submittedModal === "signin") return;
   if (submittedModal === "trainer") payload.experience = formData.get("message");
-  if (submittedModal === "booking") payload.className = selectedClass;
-
   const endpoints = {
-    join: "/api/members",
-    trainer: "/api/trainer-applications",
-    booking: "/api/bookings"
+    join: "/api/auth/register",
+    signin: "/api/auth/login",
+    trainer: "/api/trainer-applications"
   };
 
   submitButton.disabled = true;
@@ -360,6 +489,13 @@ modalForm.addEventListener("submit", async event => {
     });
     const result = await readJsonResponse(response);
     if (!response.ok) throw new Error(result.error || "The request could not be completed.");
+    if (submittedModal === "join" || submittedModal === "signin") {
+      const returnTo = new URLSearchParams(window.location.search).get("returnTo");
+      if (returnTo?.startsWith("/") && !returnTo.startsWith("//") && !returnTo.includes("\\")) {
+        window.location.assign(returnTo);
+        return;
+      }
+    }
     if (activeModal === submittedModal && !backdrop.hidden) {
       closeModal();
       showToast(result.message);
@@ -370,14 +506,6 @@ modalForm.addEventListener("submit", async event => {
     if (activeModal === submittedModal) submitButton.disabled = modalContent[submittedModal].submitDisabled;
   }
 });
-
-for (const button of document.querySelectorAll("[data-book]")) {
-  button.addEventListener("click", () => {
-    selectedClass = button.dataset.book;
-    openModal("booking");
-    modalDescription.textContent = `Enter your details to request a place in ${selectedClass}.`;
-  });
-}
 
 function showToast(message) {
   window.clearTimeout(toastTimer);
@@ -400,6 +528,9 @@ function observeMotion(elements) {
 
 observeMotion(document.querySelectorAll(".motion-reveal"));
 loadHomeContent();
+if (new URLSearchParams(window.location.search).get("auth") === "login" && modalContent.signin) {
+  openModal("signin");
+}
 
 const menuToggle = document.querySelector(".menu-toggle");
 const mainNav = document.querySelector(".main-nav");
