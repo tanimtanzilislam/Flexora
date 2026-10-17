@@ -1,6 +1,6 @@
 # Kinetra
 
-Kinetra is a static fitness-platform UI served by a small Node.js API. Member registrations, trainer applications, and class booking requests are stored in MongoDB Atlas.
+Kinetra is a fitness-platform UI served by a small Node.js API. Member registrations, trainer applications, class booking requests, featured classes, and community previews use MongoDB Atlas.
 
 ## Run locally
 
@@ -10,6 +10,8 @@ Kinetra is a static fitness-platform UI served by a small Node.js API. Member re
 4. Start the app with `npm start`.
 5. Open `http://localhost:3000`.
 
-The API uses the `flexora` database and creates `members`, `trainerApplications`, and `bookings` collections as needed. `GET /api/health` checks the MongoDB connection.
+The API uses the `flexora` database. Member and booking requests use the `members`, `trainerApplications`, and `bookings` collections. The homepage reads class documents from `classes` (set `status` to `approved` or `active` when present) and the latest forum documents from `forumPosts` (set `status` to `published` or `approved` when present). Class documents should include `name`, `trainerName`, `category`, `price`, `duration`, `description`, and optionally an HTTPS `imageUrl`. Forum documents should include `title`, `content`, `authorName`, `category`, and `createdAt`. Class booking counts are computed from non-cancelled, non-rejected documents in `bookings`; the top three classes are shown and sorted by that count.
+
+The frontend uses Motion for scroll-triggered entrance animations and is bundled when `npm start` runs. `GET /api/home` returns the featured classes and latest four forum posts; `GET /api/health` checks the MongoDB connection.
 
 Authentication and admin workflows are not implemented yet. Class booking creates a request record; it does not confirm a reserved spot.

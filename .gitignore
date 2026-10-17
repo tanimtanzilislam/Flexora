@@ -1,3 +1,4 @@
 node_modules/
 .env
+app.bundle.js
 npm-debug.log*

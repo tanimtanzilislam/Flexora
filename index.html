@@ -16,7 +16,7 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="styles.css" />
-    <script src="app.js" defer></script>
+    <script src="app.bundle.js" defer></script>
   </head>
   <body>
     <header class="site-header">
@@ -40,7 +40,7 @@
 
     <main>
       <section class="hero">
-        <div class="hero-copy">
+        <div class="hero-copy motion-reveal">
           <div class="eyebrow"><span class="eyebrow-dot"></span> YOUR MOVEMENT, YOUR PEOPLE</div>
           <h1>Find your<br />kind of <span>strong.</span></h1>
           <p class="hero-description">Good movement changes everything. Find classes you love, coaches who get you, and a community that keeps you going.</p>
@@ -57,7 +57,7 @@
           </div>
           <div class="hero-note"><span class="note-line"></span> A little better, every day.</div>
         </div>
-        <div class="hero-visual">
+        <div class="hero-visual motion-reveal">
           <img class="hero-image" src="https://images.unsplash.com/photo-1534438327276-14e5300c3a48?auto=format&fit=crop&w=1400&q=90" alt="Athlete training in a sunlit, modern gym" />
           <div class="hero-image-shade"></div>
           <div class="floating-card next-class">
@@ -78,10 +78,10 @@
         <div class="section-heading">
           <div>
             <div class="eyebrow"><span class="eyebrow-dot"></span> MAKE TODAY COUNT</div>
-            <h2>Your next <span>good thing.</span></h2>
-            <p>From first-timers to all-in. There's a place for you here.</p>
+            <h2>Featured <span>classes.</span></h2>
+            <p>Member favorites, ranked by the classes people keep coming back to.</p>
           </div>
-          <a class="text-link desktop-link" href="#class-list">See all classes <span aria-hidden="true">↗</span></a>
+          <a class="text-link desktop-link" href="#class-list">Explore featured classes <span aria-hidden="true">↗</span></a>
         </div>
         <div class="class-controls">
           <div class="filter-list" role="group" aria-label="Filter classes">
@@ -92,53 +92,14 @@
           </div>
           <label class="search-box">
             <span aria-hidden="true">⌕</span>
-            <input id="class-search" type="search" placeholder="Search classes" aria-label="Search classes" />
+            <input id="class-search" type="search" placeholder="Search featured classes" aria-label="Search featured classes" />
             <kbd>/</kbd>
           </label>
         </div>
-        <div class="class-grid" id="class-list">
-          <article class="class-card" data-category="strength" data-search="the strength room strength maya chen weights">
-            <div class="class-photo photo-strength">
-              <img src="https://images.unsplash.com/photo-1583454110551-21f2fa2afe61?auto=format&fit=crop&w=900&q=85" alt="A member lifting weights during a strength workout" />
-              <span class="photo-label">STRENGTH</span><button class="save-button" aria-label="Save The Strength Room" type="button">♡</button>
-              <span class="class-duration">45 MIN</span>
-            </div>
-            <div class="class-card-body">
-              <div class="class-time">TODAY · 6:30 PM <span class="spots">4 spots left</span></div>
-              <h3>The Strength Room</h3>
-              <div class="coach-row"><img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=80&q=80" alt="" /><span>Maya Chen <span class="coach-verified" title="Verified trainer">✓</span></span><span class="class-rating">★ 4.9</span></div>
-              <button class="book-link" type="button" data-book="The Strength Room">Book your spot <span aria-hidden="true">↗</span></button>
-            </div>
-          </article>
-          <article class="class-card" data-category="mindful" data-search="slow flow yoga mindful amara james">
-            <div class="class-photo photo-yoga">
-              <img src="https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?auto=format&fit=crop&w=900&q=85" alt="A member stretching on a yoga mat in a calm studio" />
-              <span class="photo-label">MINDFUL</span><button class="save-button" aria-label="Save Slow Flow" type="button">♡</button>
-              <span class="class-duration">60 MIN</span>
-            </div>
-            <div class="class-card-body">
-              <div class="class-time">TODAY · 7:00 PM <span class="spots spots-open">8 spots left</span></div>
-              <h3>Slow Flow</h3>
-              <div class="coach-row"><img src="https://images.unsplash.com/photo-1531123897727-8f129e1688ce?auto=format&fit=crop&w=80&q=80" alt="" /><span>Amara James <span class="coach-verified" title="Verified trainer">✓</span></span><span class="class-rating">★ 5.0</span></div>
-              <button class="book-link" type="button" data-book="Slow Flow">Book your spot <span aria-hidden="true">↗</span></button>
-            </div>
-          </article>
-          <article class="class-card" data-category="cardio" data-search="pulse ride cardio cycling leo martin">
-            <div class="class-photo photo-ride">
-              <img src="https://images.unsplash.com/photo-1534258936925-c58bed479fcb?auto=format&fit=crop&w=900&q=85" alt="A high-energy indoor cycling class" />
-              <span class="photo-label">CARDIO</span><button class="save-button" aria-label="Save Pulse Ride" type="button">♡</button>
-              <span class="class-duration">40 MIN</span>
-            </div>
-            <div class="class-card-body">
-              <div class="class-time">TOMORROW · 7:15 AM <span class="spots">2 spots left</span></div>
-              <h3>Pulse Ride</h3>
-              <div class="coach-row"><img src="https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=80&q=80" alt="" /><span>Leo Martin <span class="coach-verified" title="Verified trainer">✓</span></span><span class="class-rating">★ 4.8</span></div>
-              <button class="book-link" type="button" data-book="Pulse Ride">Book your spot <span aria-hidden="true">↗</span></button>
-            </div>
-          </article>
-        </div>
+        <p class="content-state" id="classes-state" role="status">Loading featured classes…</p>
+        <div class="class-grid" id="class-list" aria-live="polite"></div>
         <p class="empty-state" id="empty-state" hidden>No classes found. Try a different search or filter.</p>
-        <a class="text-link mobile-link" href="#class-list">See all classes <span aria-hidden="true">↗</span></a>
+        <a class="text-link mobile-link" href="#class-list">Explore featured classes <span aria-hidden="true">↗</span></a>
       </section>
 
       <section class="trainer-banner" id="trainers">
@@ -164,27 +125,8 @@
           </div>
           <a class="text-link desktop-link" href="#community-posts">Visit the community <span aria-hidden="true">↗</span></a>
         </div>
-        <div class="community-grid" id="community-posts">
-          <article class="community-card community-featured">
-            <div class="community-meta"><span class="topic-tag">GETTING STARTED</span><span>6 min read</span></div>
-            <h3>Starting over isn't starting from zero.</h3>
-            <p>After a long break, I was nervous to walk back into a gym. Here's what helped me take that first step.</p>
-            <div class="post-author"><img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=80&q=80" alt="" /><span><strong>Nina Patel</strong><small>Kinetra member · 2 days ago</small></span><span class="post-likes">♡ 24</span></div>
-          </article>
-          <article class="community-card community-quote">
-            <span class="quote-mark">“</span>
-            <blockquote>You don't have to be good at it. You just have to show up.</blockquote>
-            <span class="quote-credit">A LITTLE REMINDER FROM THE COMMUNITY</span>
-            <div class="quote-scribble" aria-hidden="true">✳</div>
-          </article>
-          <article class="community-card community-prompt">
-            <div class="prompt-icon">✳</div>
-            <span class="topic-tag">THIS WEEK'S CHECK-IN</span>
-            <h3>What's one small win you're proud of?</h3>
-            <p>Big or small, we'd love to hear it.</p>
-            <button class="text-link" type="button" data-open-modal="signin">Join the conversation <span aria-hidden="true">↗</span></button>
-          </article>
-        </div>
+        <p class="content-state" id="posts-state" role="status">Loading the latest conversations…</p>
+        <div class="community-grid forum-grid" id="community-posts" aria-live="polite"></div>
         <a class="text-link mobile-link" href="#community-posts">Visit the community <span aria-hidden="true">↗</span></a>
       </section>
     </main>
@@ -216,6 +158,22 @@
           <button class="button button-lime modal-submit" type="submit">Continue <span aria-hidden="true">↗</span></button>
         </form>
         <p class="modal-footnote">No pressure. Just good things ahead.</p>
+      </section>
+    </div>
+    <div class="modal-backdrop" id="class-details-backdrop" hidden>
+      <section class="modal class-details-modal" role="dialog" aria-modal="true" aria-labelledby="class-details-title">
+        <button class="modal-close" id="class-details-close" type="button" aria-label="Close class details">×</button>
+        <div class="eyebrow"><span class="eyebrow-dot"></span> MEMBER FAVORITE</div>
+        <h2 id="class-details-title"></h2>
+        <p class="modal-description" id="class-details-description"></p>
+        <dl class="class-details-list">
+          <div><dt>Trainer</dt><dd id="class-details-trainer"></dd></div>
+          <div><dt>Category</dt><dd id="class-details-category"></dd></div>
+          <div><dt>Price</dt><dd id="class-details-price"></dd></div>
+          <div><dt>Duration</dt><dd id="class-details-duration"></dd></div>
+          <div><dt>Bookings</dt><dd id="class-details-bookings"></dd></div>
+        </dl>
+        <button class="button button-lime modal-submit" id="class-details-book" type="button">Book this class <span aria-hidden="true">↗</span></button>
       </section>
     </div>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>

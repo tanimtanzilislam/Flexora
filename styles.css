@@ -94,7 +94,7 @@ h1 span, h2 span { color: #91ad68; font-family: Georgia, serif; font-style: ital
 .class-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 21px; padding-top: 22px; }
 .class-card { background: var(--white); min-width: 0; border: 1px solid #eeefe9; transition: transform .22s, box-shadow .22s; }
 .class-card:hover { transform: translateY(-4px); box-shadow: 0 14px 35px rgba(28,39,29,.08); }
-.class-photo { height: 194px; position: relative; overflow: hidden; background: #dfe3d9; }
+.class-photo { height: 194px; position: relative; overflow: hidden; background: linear-gradient(135deg, #dce7cc, #eef0e9); }
 .class-photo img { width: 100%; height: 100%; object-fit: cover; transition: transform .5s; }
 .class-card:hover .class-photo img { transform: scale(1.04); }
 .photo-strength img { object-position: center 39%; }.photo-yoga img { object-position: center 48%; }.photo-ride img { object-position: center 50%; }
@@ -111,9 +111,11 @@ h1 span, h2 span { color: #91ad68; font-family: Georgia, serif; font-style: ital
 .coach-row img { width: 22px; height: 22px; object-fit: cover; border-radius: 50%; }
 .coach-verified { color: #8cad56; font-size: 10px; font-weight: 700; }
 .class-rating { margin-left: auto; color: #87866a; font-size: 9px; }
+.class-price { margin-left: auto; color: #65754e; font-weight: 700; }
 .book-link { width: 100%; display: flex; justify-content: space-between; align-items: center; padding: 12px 0 0; border: 0; background: none; font-size: 10px; font-weight: 700; cursor: pointer; }
 .book-link:hover { color: #78964c; }
 .empty-state { padding: 40px 0; color: var(--muted); text-align: center; font-size: 13px; }
+.content-state { padding: 34px 0; color: var(--muted); font-size: 12px; text-align: center; }
 .mobile-link { display: none; }
 
 .trainer-banner { min-height: 438px; background: #e9eee1; display: grid; grid-template-columns: 1fr 1fr; }
@@ -130,6 +132,7 @@ h1 span, h2 span { color: #91ad68; font-family: Georgia, serif; font-style: ital
 .community-section { padding-top: 103px; padding-bottom: 112px; }
 .community-heading { margin-bottom: 33px; }
 .community-grid { display: grid; grid-template-columns: 1.08fr .94fr .94fr; gap: 18px; }
+.forum-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .community-card { min-height: 241px; padding: 22px; position: relative; overflow: hidden; }
 .community-featured { background: white; border: 1px solid #edefe8; }
 .community-meta { display: flex; align-items: center; justify-content: space-between; color: #9a9f97; font-size: 8px; }
@@ -138,6 +141,7 @@ h1 span, h2 span { color: #91ad68; font-family: Georgia, serif; font-style: ital
 .community-featured > p, .community-prompt > p { color: #777e74; font-size: 10px; line-height: 1.7; max-width: 300px; margin-bottom: 18px; }
 .post-author { display: flex; align-items: center; gap: 8px; border-top: 1px solid #eff0eb; padding-top: 12px; }
 .post-author img { width: 27px; height: 27px; border-radius: 50%; object-fit: cover; }
+.author-initial { width: 27px; height: 27px; flex: 0 0 27px; display: grid; place-items: center; border-radius: 50%; background: #e8eedc; color: #647a49; font-size: 11px; font-weight: 700; }
 .post-author > span:nth-child(2) { display: flex; flex-direction: column; gap: 2px; font-size: 9px; }
 .post-author strong { font-weight: 600; }
 .post-author small { color: #92978f; font-size: 8px; }
@@ -182,6 +186,11 @@ h1 span, h2 span { color: #91ad68; font-family: Georgia, serif; font-style: ital
 .form-field input:focus { border-color: #91b94d; box-shadow: 0 0 0 2px rgba(145,185,77,.15); }
 .modal-submit { width: 100%; margin-top: 5px; }
 .modal-footnote { text-align: center; margin: 17px 0 0; color: #969b93; font-size: 9px; }
+.class-details-modal h2 { margin-top: 17px; overflow-wrap: anywhere; }
+.class-details-list { margin: 22px 0; border-top: 1px solid var(--line); }
+.class-details-list div { display: flex; justify-content: space-between; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line); font-size: 11px; }
+.class-details-list dt { color: var(--muted); }
+.class-details-list dd { margin: 0; text-align: right; font-weight: 700; }
 .toast { position: fixed; z-index: 12; left: 50%; bottom: 25px; transform: translate(-50%, 15px); opacity: 0; pointer-events: none; padding: 13px 19px; background: #252d25; color: white; border-radius: 4px; box-shadow: 0 7px 24px rgba(0,0,0,.18); font-size: 11px; transition: opacity .2s, transform .2s; }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 
@@ -199,6 +208,7 @@ h1 span, h2 span { color: #91ad68; font-family: Georgia, serif; font-style: ital
   .class-grid { gap: 13px; }.class-photo { height: 165px; }
   .trainer-copy { padding-left: 9%; padding-right: 8%; }
   .community-grid { gap: 12px; }.community-card { padding: 17px; }
+  .forum-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .site-footer { padding-left: 6%; padding-right: 6%; }
 }
 @media (max-width: 680px) {
@@ -245,6 +255,7 @@ h1 span, h2 span { color: #91ad68; font-family: Georgia, serif; font-style: ital
   .community-section { padding-top: 70px; }
   .community-heading { margin-bottom: 24px; }
   .community-grid { grid-template-columns: 1fr; gap: 12px; }
+  .forum-grid { grid-template-columns: 1fr; }
   .community-card { min-height: 220px; padding: 21px; }
   .community-featured h3, .community-prompt h3 { font-size: 19px; }
   .community-quote { min-height: 200px; }

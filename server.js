@@ -10,7 +10,7 @@ const PORT = Number(process.env.PORT || 3000);
 const MONGODB_URI = process.env.MONGODB_URI;
 const PUBLIC_DIR = __dirname;
 const MAX_BODY_SIZE = 10 * 1024;
-const PUBLIC_FILES = new Set(["/", "/index.html", "/styles.css", "/app.js"]);
+const PUBLIC_FILES = new Set(["/", "/index.html", "/styles.css", "/app.bundle.js"]);
 const MIME_TYPES = {
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",
@@ -114,6 +114,82 @@ async function handleApi(request, response, pathname, database) {
   const applications = database.collection("trainerApplications");
   const bookings = database.collection("bookings");
 
+  if (request.method === "GET" && pathname === "/api/home") {
+    const [featuredClasses, posts] = await Promise.all([
+      database.collection("classes").aggregate([
+        {
+          $match: {
+            $or: [
+              { status: { $in: ["approved", "active"] } },
+              { status: { $exists: false } }
+            ]
+          }
+        },
+        {
+          $addFields: {
+            name: { $ifNull: ["$name", { $ifNull: ["$className", "$title"] }] }
+          }
+        },
+        { $match: { name: { $type: "string", $ne: "" } } },
+        {
+          $lookup: {
+            from: "bookings",
+            localField: "name",
+            foreignField: "className",
+            pipeline: [
+              { $match: { status: { $nin: ["cancelled", "rejected"] } } },
+              { $count: "count" }
+            ],
+            as: "bookingStats"
+          }
+        },
+        {
+          $addFields: {
+            bookingCount: { $ifNull: [{ $arrayElemAt: ["$bookingStats.count", 0] }, 0] },
+            trainerName: { $ifNull: ["$trainerName", { $ifNull: ["$trainer.name", "Kinetra trainer"] }] },
+            category: { $ifNull: ["$category", "Fitness"] },
+            description: { $ifNull: ["$description", ""] },
+            imageUrl: { $ifNull: ["$imageUrl", { $ifNull: ["$image", ""] }] }
+          }
+        },
+        { $sort: { bookingCount: -1, createdAt: -1 } },
+        { $limit: 3 },
+        {
+          $project: {
+            name: 1,
+            trainerName: 1,
+            category: 1,
+            price: 1,
+            duration: 1,
+            description: 1,
+            imageUrl: 1,
+            bookingCount: 1
+          }
+        }
+      ]).toArray(),
+      database.collection("forumPosts").find({
+        $or: [
+          { status: { $in: ["published", "approved"] } },
+          { status: { $exists: false } },
+          { isPublished: true }
+        ]
+      }, {
+        projection: { title: 1, content: 1, body: 1, authorName: 1, "author.name": 1, category: 1, createdAt: 1 }
+      }).sort({ createdAt: -1 }).limit(4).toArray()
+    ]);
+    const latestPosts = posts.map(item => ({
+      id: item._id.toString(),
+      title: item.title || "Community post",
+      content: item.content || item.body || "",
+      authorName: item.authorName || item.author?.name || "Kinetra member",
+      category: item.category || "COMMUNITY",
+      createdAt: item.createdAt || null
+    }));
+
+    sendJson(response, 200, { featuredClasses, latestPosts });
+    return;
+  }
+
   if (request.method === "GET" && pathname === "/api/health") {
     await database.command({ ping: 1 });
     sendJson(response, 200, { status: "ok", database: "connected" });
@@ -177,7 +253,11 @@ async function handleApi(request, response, pathname, database) {
 async function main() {
   await client.connect();
   const database = client.db("flexora");
-  await database.collection("members").createIndex({ email: 1 }, { unique: true });
+  await Promise.all([
+    database.collection("members").createIndex({ email: 1 }, { unique: true }),
+    database.collection("bookings").createIndex({ className: 1, status: 1 }),
+    database.collection("forumPosts").createIndex({ createdAt: -1 })
+  ]);
 
   const server = http.createServer(async (request, response) => {
     try {

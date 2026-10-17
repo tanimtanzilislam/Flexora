@@ -1,15 +1,151 @@
+import { animate, inView } from "motion";
+
 const filterButtons = [...document.querySelectorAll(".filter-button")];
-const classCards = [...document.querySelectorAll(".class-card")];
+const classList = document.querySelector("#class-list");
 const searchInput = document.querySelector("#class-search");
 const emptyState = document.querySelector("#empty-state");
+const classesState = document.querySelector("#classes-state");
+const postsState = document.querySelector("#posts-state");
+const communityPosts = document.querySelector("#community-posts");
+const classDetailsBackdrop = document.querySelector("#class-details-backdrop");
+const classDetailsTitle = document.querySelector("#class-details-title");
+const classDetailsDescription = document.querySelector("#class-details-description");
+const classDetailsTrainer = document.querySelector("#class-details-trainer");
+const classDetailsCategory = document.querySelector("#class-details-category");
+const classDetailsPrice = document.querySelector("#class-details-price");
+const classDetailsDuration = document.querySelector("#class-details-duration");
+const classDetailsBookings = document.querySelector("#class-details-bookings");
+const classDetailsBook = document.querySelector("#class-details-book");
+const classDetails = new Map();
 let activeFilter = "all";
+let classDetailsReturnFocus = null;
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, character => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  })[character]);
+}
+
+function safeImageUrl(value) {
+  if (typeof value !== "string" || !value) return "";
+  try {
+    const url = new URL(value, window.location.origin);
+    return url.protocol === "https:" ? url.href : "";
+  } catch {
+    return "";
+  }
+}
+
+function categoryFilterValue(category) {
+  const value = category.toLowerCase();
+  if (value.includes("strength")) return "strength";
+  if (value.includes("mindful") || value.includes("yoga") || value.includes("pilates")) return "mindful";
+  if (value.includes("cardio") || value.includes("cycling") || value.includes("ride")) return "cardio";
+  return value;
+}
+
+function formatDuration(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return `${value} min`;
+  const text = String(value || "");
+  return /^\d+$/.test(text) ? `${text} min` : text || "Varies";
+}
+
+async function readJsonResponse(response) {
+  if (!response.headers.get("content-type")?.includes("application/json")) {
+    throw new Error("The server returned an invalid response. Please try again.");
+  }
+  return response.json();
+}
+
+function renderClasses(classes) {
+  classDetails.clear();
+  classList.innerHTML = classes.map(item => {
+    const category = String(item.category || "Fitness");
+    const imageUrl = safeImageUrl(item.imageUrl);
+    const details = {
+      ...item,
+      name: String(item.name || "Fitness class"),
+      trainerName: String(item.trainerName || "Kinetra trainer"),
+      category,
+      price: item.price == null || item.price === ""
+        ? "Ask trainer"
+        : typeof item.price === "object" && item.price !== null
+          ? [item.price.amount, item.price.currency].filter(Boolean).join(" ")
+          : String(item.price),
+      duration: formatDuration(item.duration),
+      description: String(item.description || "A welcoming class led by a Kinetra trainer."),
+      bookingCount: Number.isFinite(Number(item.bookingCount)) ? Number(item.bookingCount) : 0
+    };
+    classDetails.set(String(item.id), details);
+    const searchText = `${details.name} ${details.trainerName} ${category}`.toLowerCase();
+    const photo = imageUrl
+      ? `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(details.name)} class" loading="lazy" />`
+      : "";
+    return `<article class="class-card motion-reveal" data-class-id="${escapeHtml(item.id)}" data-category="${escapeHtml(categoryFilterValue(category))}" data-search="${escapeHtml(searchText)}">
+      <div class="class-photo">${photo}<span class="photo-label">${escapeHtml(category)}</span><span class="class-duration">${escapeHtml(details.duration)}</span></div>
+      <div class="class-card-body">
+        <div class="class-time"><span>FEATURED CLASS</span><span class="spots">${details.bookingCount} ${details.bookingCount === 1 ? "booking" : "bookings"}</span></div>
+        <h3>${escapeHtml(details.name)}</h3>
+        <div class="coach-row"><span>${escapeHtml(details.trainerName)}</span><span class="class-price">${escapeHtml(details.price)}</span></div>
+        <button class="book-link" type="button" data-class-details="${escapeHtml(item.id)}">View class details <span aria-hidden="true">↗</span></button>
+      </div>
+    </article>`;
+  }).join("");
+  classesState.hidden = true;
+  filterClasses();
+  observeMotion(classList.querySelectorAll(".motion-reveal"));
+}
+
+function renderLatestPosts(posts) {
+  communityPosts.innerHTML = posts.map(post => {
+    const date = post.createdAt ? new Date(post.createdAt) : null;
+    const dateLabel = date && !Number.isNaN(date.valueOf())
+      ? new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date)
+      : "Latest";
+    const content = String(post.content || "");
+    const excerpt = content.length > 180 ? `${content.slice(0, 177).trimEnd()}…` : content;
+    return `<article class="community-card community-featured motion-reveal">
+      <div class="community-meta"><span class="topic-tag">${escapeHtml(post.category || "COMMUNITY")}</span><span>${escapeHtml(dateLabel)}</span></div>
+      <h3>${escapeHtml(post.title || "Community post")}</h3>
+      <p>${escapeHtml(excerpt || "A new story from the Kinetra community.")}</p>
+      <div class="post-author"><span class="author-initial" aria-hidden="true">${escapeHtml(String(post.authorName || "K").trim().charAt(0).toUpperCase())}</span><span><strong>${escapeHtml(post.authorName || "Kinetra member")}</strong><small>Community member</small></span></div>
+    </article>`;
+  }).join("");
+  postsState.hidden = true;
+  observeMotion(communityPosts.querySelectorAll(".motion-reveal"));
+}
+
+function showContentError(element, content) {
+  element.textContent = content;
+  element.hidden = false;
+}
+
+async function loadHomeContent() {
+  try {
+    const response = await fetch("/api/home");
+    const result = await readJsonResponse(response);
+    if (!response.ok) throw new Error(result.error || "Homepage content could not be loaded.");
+    renderClasses(result.featuredClasses || []);
+    renderLatestPosts(result.latestPosts || []);
+    if (!result.featuredClasses?.length) showContentError(classesState, "No approved classes have been published yet.");
+    if (!result.latestPosts?.length) showContentError(postsState, "No community posts have been published yet.");
+  } catch (error) {
+    showContentError(classesState, error.message);
+    showContentError(postsState, error.message);
+  }
+}
 
 function filterClasses() {
   const query = searchInput.value.trim().toLowerCase();
+  const classCards = [...classList.querySelectorAll(".class-card")];
   let visibleCount = 0;
 
   for (const card of classCards) {
-    const matchesCategory = activeFilter === "all" || card.dataset.category === activeFilter;
+    const matchesCategory = activeFilter === "all" || card.dataset.category.includes(activeFilter);
     const matchesSearch = card.dataset.search.includes(query);
     const isVisible = matchesCategory && matchesSearch;
     card.hidden = !isVisible;
@@ -34,14 +170,43 @@ for (const button of filterButtons) {
 
 searchInput.addEventListener("input", filterClasses);
 
-for (const button of document.querySelectorAll(".save-button")) {
-  button.addEventListener("click", () => {
-    const isSaved = button.classList.toggle("saved");
-    button.textContent = isSaved ? "♥" : "♡";
-    button.setAttribute("aria-pressed", String(isSaved));
-  });
-  button.setAttribute("aria-pressed", "false");
+classList.addEventListener("click", event => {
+  const detailsButton = event.target.closest("[data-class-details]");
+  if (!detailsButton) return;
+  const item = classDetails.get(detailsButton.dataset.classDetails);
+  if (!item) return;
+
+  classDetailsReturnFocus = detailsButton;
+  classDetailsTitle.textContent = item.name;
+  classDetailsDescription.textContent = item.description;
+  classDetailsTrainer.textContent = item.trainerName;
+  classDetailsCategory.textContent = item.category;
+  classDetailsPrice.textContent = item.price;
+  classDetailsDuration.textContent = item.duration;
+  classDetailsBookings.textContent = String(item.bookingCount);
+  classDetailsBackdrop.hidden = false;
+  document.body.classList.add("modal-open");
+  document.querySelector("#class-details-close").focus();
+});
+
+function closeClassDetails() {
+  classDetailsBackdrop.hidden = true;
+  document.body.classList.remove("modal-open");
+  if (classDetailsReturnFocus instanceof HTMLElement) classDetailsReturnFocus.focus();
 }
+
+document.querySelector("#class-details-close").addEventListener("click", closeClassDetails);
+classDetailsBackdrop.addEventListener("click", event => {
+  if (event.target === classDetailsBackdrop) closeClassDetails();
+});
+classDetailsBook.addEventListener("click", () => {
+  const item = classDetails.get(classDetailsReturnFocus?.dataset.classDetails);
+  if (!item) return;
+  selectedClass = item.name;
+  classDetailsBackdrop.hidden = true;
+  openModal("booking", classDetailsReturnFocus);
+  modalDescription.textContent = `Enter your details to request a place in ${selectedClass}.`;
+});
 
 const backdrop = document.querySelector("#modal-backdrop");
 const modalTitle = document.querySelector("#modal-title");
@@ -91,9 +256,9 @@ const modalContent = {
   }
 };
 
-function openModal(type) {
+function openModal(type, returnFocusTo = document.activeElement) {
   activeModal = type;
-  lastFocusedElement = document.activeElement;
+  lastFocusedElement = returnFocusTo;
   const content = modalContent[type];
   modalTitle.innerHTML = content.title;
   modalDescription.textContent = content.description;
@@ -127,7 +292,8 @@ backdrop.addEventListener("click", event => {
 });
 document.addEventListener("keydown", event => {
   if (event.key === "Escape" && !backdrop.hidden) closeModal();
-  if (event.key === "/" && backdrop.hidden && !["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) {
+  if (event.key === "Escape" && !classDetailsBackdrop.hidden) closeClassDetails();
+  if (event.key === "/" && backdrop.hidden && classDetailsBackdrop.hidden && !["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) {
     event.preventDefault();
     searchInput.focus();
   }
@@ -135,6 +301,7 @@ document.addEventListener("keydown", event => {
 
 modalForm.addEventListener("submit", async event => {
   event.preventDefault();
+  const submittedModal = activeModal;
   const submitButton = modalForm.querySelector("button[type='submit']");
   const formData = new FormData(modalForm);
   const payload = {
@@ -142,9 +309,9 @@ modalForm.addEventListener("submit", async event => {
     email: formData.get("email")
   };
 
-  if (activeModal === "signin") return;
-  if (activeModal === "trainer") payload.experience = formData.get("message");
-  if (activeModal === "booking") payload.className = selectedClass;
+  if (submittedModal === "signin") return;
+  if (submittedModal === "trainer") payload.experience = formData.get("message");
+  if (submittedModal === "booking") payload.className = selectedClass;
 
   const endpoints = {
     join: "/api/members",
@@ -154,19 +321,21 @@ modalForm.addEventListener("submit", async event => {
 
   submitButton.disabled = true;
   try {
-    const response = await fetch(endpoints[activeModal], {
+    const response = await fetch(endpoints[submittedModal], {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     });
-    const result = await response.json();
+    const result = await readJsonResponse(response);
     if (!response.ok) throw new Error(result.error || "The request could not be completed.");
-    closeModal();
-    showToast(result.message);
+    if (activeModal === submittedModal && !backdrop.hidden) {
+      closeModal();
+      showToast(result.message);
+    }
   } catch (error) {
-    modalDescription.textContent = error.message;
+    if (activeModal === submittedModal && !backdrop.hidden) modalDescription.textContent = error.message;
   } finally {
-    submitButton.disabled = modalContent[activeModal].submitDisabled;
+    if (activeModal === submittedModal) submitButton.disabled = modalContent[submittedModal].submitDisabled;
   }
 });
 
@@ -184,6 +353,21 @@ function showToast(message) {
   toast.classList.add("show");
   toastTimer = window.setTimeout(() => toast.classList.remove("show"), 3600);
 }
+
+const observedElements = new WeakSet();
+function observeMotion(elements) {
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  for (const element of elements) {
+    if (observedElements.has(element)) continue;
+    observedElements.add(element);
+    inView(element, () => {
+      animate(element, { opacity: [0, 1], y: [18, 0] }, { duration: 0.55, ease: "easeOut" });
+    }, { amount: 0.15 });
+  }
+}
+
+observeMotion(document.querySelectorAll(".motion-reveal"));
+loadHomeContent();
 
 const menuToggle = document.querySelector(".menu-toggle");
 const mainNav = document.querySelector(".main-nav");
