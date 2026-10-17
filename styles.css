@@ -76,6 +76,12 @@ h1 span, h2 span { color: #91ad68; font-family: Georgia, serif; font-style: ital
 .trust-strip i { height: 3px; width: 3px; background: #9aae7b; border-radius: 50%; }
 .section-wrap { padding: 101px 9.3% 106px; }
 .section-heading { display: flex; align-items: end; justify-content: space-between; }
+.classes-page { min-height: 62vh; }
+.classes-page-heading { align-items: center; gap: 24px; }
+.classes-page-heading h1 { font-size: clamp(43px, 5vw, 66px); line-height: 1.05; margin: 20px 0 10px; }
+.classes-page-heading p { max-width: 510px; line-height: 1.7; }
+.classes-back-link { flex-shrink: 0; }
+.all-classes-grid { min-height: 180px; }
 .section-heading h2, .trainer-copy h2 { font-size: clamp(37px, 4vw, 52px); line-height: 1.1; font-weight: 600; letter-spacing: -2.6px; margin: 18px 0 9px; }
 .section-heading h2 span, .trainer-copy h2 span { letter-spacing: -2.8px; }
 .section-heading p { color: var(--muted); font-size: 12px; margin-bottom: 0; }
@@ -239,6 +245,8 @@ h1 span, h2 span { color: #91ad68; font-family: Georgia, serif; font-style: ital
   .section-wrap { padding: 70px 22px; }
   .section-heading { display: block; }
   .section-heading h2, .trainer-copy h2 { font-size: 41px; letter-spacing: -2.6px; }
+  .classes-page-heading h1 { font-size: clamp(43px, 12vw, 58px); margin-top: 17px; letter-spacing: -3px; }
+  .classes-page-heading .classes-back-link { margin-top: 19px; }
   .section-heading p { font-size: 11px; line-height: 1.7; }
   .desktop-link { display: none; }.mobile-link { display: inline-flex; margin-top: 23px; }
   .class-controls { display: block; margin-top: 24px; padding-bottom: 9px; }

@@ -10,7 +10,7 @@ const PORT = Number(process.env.PORT || 3000);
 const MONGODB_URI = process.env.MONGODB_URI;
 const PUBLIC_DIR = __dirname;
 const MAX_BODY_SIZE = 10 * 1024;
-const PUBLIC_FILES = new Set(["/", "/index.html", "/styles.css", "/app.bundle.js"]);
+const PUBLIC_FILES = new Set(["/", "/classes", "/index.html", "/classes.html", "/styles.css", "/app.bundle.js"]);
 const MIME_TYPES = {
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",
@@ -78,7 +78,11 @@ async function serveStatic(request, response, pathname) {
     sendJson(response, 404, { error: "Not found." });
     return;
   }
-  const requestedPath = pathname === "/" ? "/index.html" : pathname;
+  const requestedPath = pathname === "/"
+    ? "/index.html"
+    : pathname === "/classes"
+      ? "/classes.html"
+      : pathname;
   const filePath = path.resolve(PUBLIC_DIR, `.${requestedPath}`);
   if (!filePath.startsWith(`${PUBLIC_DIR}${path.sep}`)) {
     sendJson(response, 404, { error: "Not found." });
@@ -113,6 +117,57 @@ async function handleApi(request, response, pathname, database) {
   const members = database.collection("members");
   const applications = database.collection("trainerApplications");
   const bookings = database.collection("bookings");
+
+  if (request.method === "GET" && pathname === "/api/classes") {
+    const classes = await database.collection("classes").aggregate([
+      { $match: { status: { $regex: "^approved$", $options: "i" } } },
+      {
+        $addFields: {
+          name: { $ifNull: ["$name", { $ifNull: ["$className", "$title"] }] }
+        }
+      },
+      { $match: { name: { $type: "string", $ne: "" } } },
+      {
+        $lookup: {
+          from: "bookings",
+          localField: "name",
+          foreignField: "className",
+          pipeline: [
+            { $match: { status: { $nin: ["cancelled", "rejected"] } } },
+            { $count: "count" }
+          ],
+          as: "bookingStats"
+        }
+      },
+      {
+        $addFields: {
+          bookingCount: { $ifNull: [{ $arrayElemAt: ["$bookingStats.count", 0] }, 0] },
+          trainerName: { $ifNull: ["$trainerName", { $ifNull: ["$trainer.name", "Kinetra trainer"] }] },
+          category: { $ifNull: ["$category", "Fitness"] },
+          description: { $ifNull: ["$description", ""] },
+          imageUrl: { $ifNull: ["$imageUrl", { $ifNull: ["$image", ""] }] }
+        }
+      },
+      { $sort: { name: 1 } },
+      {
+        $project: {
+          name: 1,
+          trainerName: 1,
+          category: 1,
+          price: 1,
+          duration: 1,
+          description: 1,
+          imageUrl: 1,
+          bookingCount: 1
+        }
+      }
+    ]).toArray();
+
+    sendJson(response, 200, {
+      classes: classes.map(({ _id, ...item }) => ({ ...item, id: _id.toString() }))
+    });
+    return;
+  }
 
   if (request.method === "GET" && pathname === "/api/home") {
     const [featuredClasses, posts] = await Promise.all([

@@ -1,6 +1,7 @@
 import { animate, inView } from "motion";
 
-const filterButtons = [...document.querySelectorAll(".filter-button")];
+const filterContainer = document.querySelector("#class-filters") || document.querySelector(".filter-list");
+let filterButtons = [];
 const classList = document.querySelector("#class-list");
 const searchInput = document.querySelector("#class-search");
 const emptyState = document.querySelector("#empty-state");
@@ -48,6 +49,10 @@ function categoryFilterValue(category) {
   return value;
 }
 
+function categorySlug(category) {
+  return category.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
 function formatDuration(value) {
   if (typeof value === "number" && Number.isFinite(value)) return `${value} min`;
   const text = String(value || "");
@@ -62,6 +67,7 @@ async function readJsonResponse(response) {
 }
 
 function renderClasses(classes) {
+  if (document.body.dataset.page === "classes") renderCategoryFilters(classes);
   classDetails.clear();
   classList.innerHTML = classes.map(item => {
     const category = String(item.category || "Fitness");
@@ -82,13 +88,19 @@ function renderClasses(classes) {
     };
     classDetails.set(String(item.id), details);
     const searchText = `${details.name} ${details.trainerName} ${category}`.toLowerCase();
+    const cardCategory = document.body.dataset.page === "classes"
+      ? categorySlug(category)
+      : categoryFilterValue(category);
+    const searchableText = document.body.dataset.page === "classes"
+      ? details.name.toLowerCase()
+      : searchText;
     const photo = imageUrl
       ? `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(details.name)} class" loading="lazy" />`
       : "";
-    return `<article class="class-card motion-reveal" data-class-id="${escapeHtml(item.id)}" data-category="${escapeHtml(categoryFilterValue(category))}" data-search="${escapeHtml(searchText)}">
+    return `<article class="class-card motion-reveal" data-class-id="${escapeHtml(item.id)}" data-category="${escapeHtml(cardCategory)}" data-search="${escapeHtml(searchableText)}">
       <div class="class-photo">${photo}<span class="photo-label">${escapeHtml(category)}</span><span class="class-duration">${escapeHtml(details.duration)}</span></div>
       <div class="class-card-body">
-        <div class="class-time"><span>FEATURED CLASS</span><span class="spots">${details.bookingCount} ${details.bookingCount === 1 ? "booking" : "bookings"}</span></div>
+        <div class="class-time"><span>${document.body.dataset.page === "classes" ? "APPROVED CLASS" : "FEATURED CLASS"}</span><span class="spots">${details.bookingCount} ${details.bookingCount === 1 ? "booking" : "bookings"}</span></div>
         <h3>${escapeHtml(details.name)}</h3>
         <div class="coach-row"><span>${escapeHtml(details.trainerName)}</span><span class="class-price">${escapeHtml(details.price)}</span></div>
         <button class="book-link" type="button" data-class-details="${escapeHtml(item.id)}">View class details <span aria-hidden="true">↗</span></button>
@@ -98,6 +110,14 @@ function renderClasses(classes) {
   classesState.hidden = true;
   filterClasses();
   observeMotion(classList.querySelectorAll(".motion-reveal"));
+}
+
+function renderCategoryFilters(classes) {
+  const categories = [...new Set(classes.map(item => String(item.category || "Fitness").trim()).filter(Boolean))]
+    .sort((left, right) => left.localeCompare(right));
+  filterContainer.innerHTML = `<button class="filter-button selected" type="button" data-filter="all" aria-pressed="true">All classes</button>
+    ${categories.map(category => `<button class="filter-button" type="button" data-filter="${escapeHtml(categorySlug(category))}" aria-pressed="false">${escapeHtml(category)}</button>`).join("")}`;
+  bindFilterButtons();
 }
 
 function renderLatestPosts(posts) {
@@ -126,16 +146,24 @@ function showContentError(element, content) {
 
 async function loadHomeContent() {
   try {
-    const response = await fetch("/api/home");
+    const isClassesPage = document.body.dataset.page === "classes";
+    const response = await fetch(isClassesPage ? "/api/classes" : "/api/home");
     const result = await readJsonResponse(response);
     if (!response.ok) throw new Error(result.error || "Homepage content could not be loaded.");
-    renderClasses(result.featuredClasses || []);
-    renderLatestPosts(result.latestPosts || []);
-    if (!result.featuredClasses?.length) showContentError(classesState, "No approved classes have been published yet.");
-    if (!result.latestPosts?.length) showContentError(postsState, "No community posts have been published yet.");
+    const classes = isClassesPage ? result.classes || [] : result.featuredClasses || [];
+    renderClasses(classes);
+    if (!isClassesPage) {
+      renderLatestPosts(result.latestPosts || []);
+      if (!result.latestPosts?.length) showContentError(postsState, "No community posts have been published yet.");
+    }
+    if (!classes.length) {
+      showContentError(classesState, isClassesPage
+        ? "No approved classes are available right now."
+        : "No approved classes have been published yet.");
+    }
   } catch (error) {
     showContentError(classesState, error.message);
-    showContentError(postsState, error.message);
+    if (postsState) showContentError(postsState, error.message);
   }
 }
 
@@ -155,18 +183,22 @@ function filterClasses() {
   emptyState.hidden = visibleCount !== 0;
 }
 
-for (const button of filterButtons) {
-  button.addEventListener("click", () => {
-    activeFilter = button.dataset.filter;
-    for (const filterButton of filterButtons) {
-      const selected = filterButton === button;
-      filterButton.classList.toggle("selected", selected);
-      filterButton.setAttribute("aria-pressed", String(selected));
-    }
-    filterClasses();
-  });
-  button.setAttribute("aria-pressed", String(button.classList.contains("selected")));
+function bindFilterButtons() {
+  filterButtons = [...filterContainer.querySelectorAll(".filter-button")];
+  for (const button of filterButtons) {
+    button.addEventListener("click", () => {
+      activeFilter = button.dataset.filter;
+      for (const filterButton of filterButtons) {
+        const selected = filterButton === button;
+        filterButton.classList.toggle("selected", selected);
+        filterButton.setAttribute("aria-pressed", String(selected));
+      }
+      filterClasses();
+    });
+    button.setAttribute("aria-pressed", String(button.classList.contains("selected")));
+  }
 }
+bindFilterButtons();
 
 searchInput.addEventListener("input", filterClasses);
 
