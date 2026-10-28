@@ -39,6 +39,20 @@
           <h1 id="forum-post-title"></h1>
           <p class="forum-post-author" id="forum-post-author"></p>
           <div class="forum-post-body" id="forum-post-body"></div>
+          <section class="forum-post-interactions" id="forum-post-interactions" aria-label="Post reactions">
+            <button class="button button-quiet" type="button" data-vote="like" aria-pressed="false">Like <span id="forum-like-count">0</span></button>
+            <button class="button button-quiet" type="button" data-vote="dislike" aria-pressed="false">Dislike <span id="forum-dislike-count">0</span></button>
+          </section>
+          <section class="forum-comments" aria-labelledby="forum-comments-heading">
+            <div class="forum-comments-heading">
+              <h2 id="forum-comments-heading">Comments <span id="forum-comment-count">0</span></h2>
+            </div>
+            <form class="comment-reply-form forum-root-comment-form" id="forum-comment-form" data-comment-form data-parent-comment-id="">
+              <label class="form-field">Add a comment<textarea name="content" maxlength="2000" required placeholder="Share your thoughts…"></textarea></label>
+              <button class="button button-dark button-small" type="submit">Post comment</button>
+            </form>
+            <div class="forum-comment-list" id="forum-comment-list" aria-live="polite"></div>
+          </section>
         </div>
       </article>
     </main>

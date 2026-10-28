@@ -24,6 +24,7 @@ const dashboardEmpty = document.querySelector("#dashboard-empty");
 let activeFilter = "all";
 let currentPrivateClass = null;
 let currentClassFavorited = false;
+let currentForumPostId = null;
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, character => ({
@@ -199,9 +200,14 @@ async function loadCommunityPage() {
 
 async function loadForumPostPage() {
   const postId = window.location.pathname.split("/").pop();
+  currentForumPostId = postId;
   try {
     const response = await fetch(`/api/community/${encodeURIComponent(postId)}`);
     const result = await readJsonResponse(response);
+    if (response.status === 401) {
+      window.location.replace(`/?auth=login&returnTo=${encodeURIComponent(window.location.pathname)}`);
+      return;
+    }
     if (!response.ok) throw new Error(result.error || "Community post could not be loaded.");
     const post = result.post;
     document.title = `${post.title} — Kinetra Community`;
@@ -260,7 +266,12 @@ function renderForumComments(comments, currentUserId) {
       </div>`;
       return `<article class="forum-comment${comment.deleted ? " deleted" : ""}" style="--comment-depth:${Math.min(depth, 5)}" data-comment-id="${escapeHtml(comment.id)}">
         <div class="comment-heading">${avatar}<span><strong>${escapeHtml(comment.authorName || "Member")}</strong><small>${escapeHtml(new Date(comment.createdAt).toLocaleString())}${comment.updatedAt ? " · edited" : ""}</small></span></div>
-        <p class="forum-comment-body">${escapeHtml(content)}</p>
+        <p class="forum-comment-body" data-comment-content>${escapeHtml(content)}</p>
+        ${isOwner && !comment.deleted ? `<form class="comment-edit-form" data-comment-edit-form hidden>
+          <label class="form-field">Edit your comment<textarea name="content" maxlength="2000" required>${escapeHtml(comment.content)}</textarea></label>
+          <button class="button button-dark button-small" type="submit">Save changes</button>
+          <button class="text-link" type="button" data-cancel-edit>Cancel</button>
+        </form>` : ""}
         ${controls}
         <form class="comment-reply-form" data-comment-form data-parent-comment-id="${escapeHtml(comment.id)}" hidden>
           <label class="form-field">Your reply<textarea name="content" maxlength="2000" required placeholder="Write a thoughtful reply…"></textarea></label>
@@ -274,6 +285,130 @@ function renderForumComments(comments, currentUserId) {
   forumCommentList.innerHTML = renderBranch("", 0);
   document.querySelector("#forum-comment-count").textContent = String(comments.length);
 }
+
+async function submitForumComment(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const content = form.elements.content.value.trim();
+  if (!content || !currentForumPostId) return;
+  const isEdit = form.matches("[data-comment-edit-form]");
+  const commentId = isEdit ? form.closest("[data-comment-id]")?.dataset.commentId : null;
+  const parentCommentId = form.dataset.parentCommentId || "";
+  const endpoint = commentId
+    ? `/api/community/${encodeURIComponent(currentForumPostId)}/comments/${encodeURIComponent(commentId)}`
+    : `/api/community/${encodeURIComponent(currentForumPostId)}/comments`;
+  const submitButton = form.querySelector("button[type='submit']");
+  submitButton.disabled = true;
+  try {
+    const response = await fetch(endpoint, {
+      method: isEdit ? "PATCH" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(isEdit ? { content } : { content, parentCommentId: parentCommentId || null })
+    });
+    const result = await readJsonResponse(response);
+    if (response.status === 401) {
+      window.location.assign(`/?auth=login&returnTo=${encodeURIComponent(window.location.pathname)}`);
+      return;
+    }
+    if (!response.ok) throw new Error(result.error || "Your comment could not be saved.");
+    await loadForumPostPage();
+    showToast(result.message);
+  } catch (error) {
+    showToast(error.message);
+    submitButton.disabled = false;
+  }
+}
+
+forumCommentForm?.addEventListener("submit", submitForumComment);
+forumCommentList?.addEventListener("submit", event => {
+  if (event.target.matches("[data-comment-form], [data-comment-edit-form]")) {
+    submitForumComment(event);
+  }
+});
+
+forumCommentList?.addEventListener("click", async event => {
+  const replyButton = event.target.closest("[data-reply-comment]");
+  if (replyButton) {
+    const comment = replyButton.closest("[data-comment-id]");
+    const form = comment.querySelector("[data-comment-form]");
+    form.hidden = !form.hidden;
+    if (!form.hidden) form.elements.content.focus();
+    return;
+  }
+
+  const editButton = event.target.closest("[data-edit-comment]");
+  if (editButton) {
+    const comment = editButton.closest("[data-comment-id]");
+    const editForm = comment.querySelector("[data-comment-edit-form]");
+    comment.querySelector("[data-comment-content]").hidden = true;
+    editForm.hidden = false;
+    editForm.elements.content.focus();
+    return;
+  }
+
+  const cancelButton = event.target.closest("[data-cancel-edit]");
+  if (cancelButton) {
+    const comment = cancelButton.closest("[data-comment-id]");
+    comment.querySelector("[data-comment-edit-form]").hidden = true;
+    comment.querySelector("[data-comment-content]").hidden = false;
+    return;
+  }
+
+  const deleteButton = event.target.closest("[data-delete-comment]");
+  if (!deleteButton || !window.confirm("Delete this comment?")) return;
+  const commentId = deleteButton.dataset.deleteComment;
+  deleteButton.disabled = true;
+  try {
+    const response = await fetch(`/api/community/${encodeURIComponent(currentForumPostId)}/comments/${encodeURIComponent(commentId)}`, {
+      method: "DELETE"
+    });
+    const result = await readJsonResponse(response);
+    if (response.status === 401) {
+      window.location.assign(`/?auth=login&returnTo=${encodeURIComponent(window.location.pathname)}`);
+      return;
+    }
+    if (!response.ok) throw new Error(result.error || "Your comment could not be deleted.");
+    await loadForumPostPage();
+    showToast(result.message);
+  } catch (error) {
+    showToast(error.message);
+    deleteButton.disabled = false;
+  }
+});
+
+forumPostInteractions?.addEventListener("click", async event => {
+  const button = event.target.closest("[data-vote]");
+  if (!button || !currentForumPostId) return;
+  const removingVote = button.getAttribute("aria-pressed") === "true";
+  button.disabled = true;
+  try {
+    const response = await fetch(`/api/community/${encodeURIComponent(currentForumPostId)}/votes`, {
+      method: removingVote ? "DELETE" : "POST",
+      ...(removingVote ? {} : {
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vote: button.dataset.vote })
+      })
+    });
+    const result = await readJsonResponse(response);
+    if (response.status === 401) {
+      window.location.assign(`/?auth=login&returnTo=${encodeURIComponent(window.location.pathname)}`);
+      return;
+    }
+    if (!response.ok) throw new Error(result.error || "Your vote could not be saved.");
+    document.querySelector("#forum-like-count").textContent = String(result.likes);
+    document.querySelector("#forum-dislike-count").textContent = String(result.dislikes);
+    for (const voteButton of forumPostInteractions.querySelectorAll("[data-vote]")) {
+      const selected = voteButton.dataset.vote === result.userVote;
+      voteButton.setAttribute("aria-pressed", String(selected));
+      voteButton.classList.toggle("selected", selected);
+    }
+    showToast(result.message);
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    button.disabled = false;
+  }
+});
 
 function renderDashboardFavorites(classes) {
   dashboardFavorites.innerHTML = classes.map(item => {

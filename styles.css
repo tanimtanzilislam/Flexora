@@ -228,6 +228,26 @@ h1 span, h2 span { color: #91ad68; font-family: Georgia, serif; font-style: ital
 .forum-post-content h1 { max-width: 780px; font-size: clamp(42px, 5vw, 64px); line-height: 1.08; letter-spacing: -3px; margin: 20px 0 13px; }
 .forum-post-author { color: #777e74; font-size: 12px; }
 .forum-post-body { color: #4f574e; font-size: 15px; line-height: 1.9; white-space: pre-line; }
+.forum-post-interactions { display: flex; gap: 10px; margin: 30px 0 42px; padding: 18px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.forum-post-interactions .selected { background: #e5e8df; color: #252d25; }
+.forum-comments { max-width: 820px; margin: 0 auto 55px; }
+.forum-comments-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+.forum-comments-heading h2 { font: 700 25px/1.2 var(--font-display); letter-spacing: -.8px; }
+.forum-comments-heading h2 span { color: var(--muted); font: 500 14px/1 var(--font-body); }
+.forum-root-comment-form, .comment-reply-form, .comment-edit-form { margin: 15px 0; padding: 16px; background: #f1f3ec; }
+.comment-reply-form[hidden], .comment-edit-form[hidden] { display: none; }
+.comment-reply-form textarea, .comment-edit-form textarea { display: block; width: 100%; min-height: 90px; margin-top: 7px; padding: 11px; border: 1px solid #dfe3d9; border-radius: 3px; resize: vertical; font: inherit; }
+.forum-comment-list { margin-top: 22px; }
+.forum-comment { margin: 18px 0 18px calc(min(var(--comment-depth), 5) * 18px); padding: 18px; border: 1px solid var(--line); background: white; }
+.comment-heading { display: flex; align-items: center; gap: 10px; }
+.comment-heading img, .comment-heading .author-initial { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 50%; object-fit: cover; background: #e5e8df; }
+.comment-heading strong, .comment-heading small { display: block; }
+.comment-heading small { margin-top: 4px; color: var(--muted); font-size: 10px; }
+.forum-comment-body { margin: 13px 0; color: #4f574e; font-size: 12px; line-height: 1.7; white-space: pre-line; overflow-wrap: anywhere; }
+.forum-comment.deleted .forum-comment-body { color: var(--muted); font-style: italic; }
+.comment-actions { display: flex; gap: 14px; }
+.comment-actions .text-link, .comment-edit-form .text-link { border: 0; background: none; font-size: 10px; cursor: pointer; }
+.comment-delete { color: #a1493e; }
 .dashboard-page { min-height: 65vh; }
 .favorites-grid { margin-top: 30px; }
 .favorite-remove-link { color: #72796e; }

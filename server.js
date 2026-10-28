@@ -1086,13 +1086,14 @@ async function main() {
       const privateClassRoute = request.method === "GET" && url.pathname.match(/^\/classes\/([a-f\d]{24})$/i);
       const privatePaymentRoute = request.method === "GET" && url.pathname === "/payment";
       const privateDashboardRoute = request.method === "GET" && url.pathname === "/dashboard";
+      const privateForumPostRoute = ["GET", "HEAD"].includes(request.method) && url.pathname.match(/^\/community\/([a-f\d]{24})$/i);
       if (url.pathname === "/api/auth/config") {
         await handleApi(request, response, url.pathname, database);
       } else if (url.pathname.startsWith("/api/auth/")) {
         await authNodeHandler(request, response);
       } else if (request.method === "POST" && url.pathname === "/api/stripe/webhook") {
         await handleStripeWebhook(request, response, database);
-      } else if (privateClassRoute || privatePaymentRoute || privateDashboardRoute) {
+      } else if (privateClassRoute || privatePaymentRoute || privateDashboardRoute || privateForumPostRoute) {
         const user = await currentUser(request, database);
         if (!user) {
           const returnTo = `${url.pathname}${url.search}`;
@@ -1102,7 +1103,13 @@ async function main() {
           });
           response.end();
         } else {
-          const privatePath = privateClassRoute ? "/class-details.html" : privatePaymentRoute ? "/payment.html" : "/dashboard.html";
+          const privatePath = privateClassRoute
+            ? "/class-details.html"
+            : privatePaymentRoute
+              ? "/payment.html"
+              : privateDashboardRoute
+                ? "/dashboard.html"
+                : "/forum-post.html";
           await serveStatic(request, response, privatePath, true);
         }
       } else if (url.pathname.startsWith("/api/")) {
