@@ -14,6 +14,7 @@ const APP_BASE_URL = process.env.APP_BASE_URL || `http://localhost:${PORT}`;
 const BETTER_AUTH_SECRET = process.env.BETTER_AUTH_SECRET;
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
+const IMGBB_API_KEY = process.env.IMGBB_API_KEY;
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const PUBLIC_DIR = __dirname;
@@ -71,6 +72,31 @@ function ensureSameOrigin(request) {
 
 function approvedClassFilter(id) {
   return { _id: id, status: { $regex: "^approved$", $options: "i" } };
+}
+
+function safeHttpImageUrl(value) {
+  if (typeof value !== "string") return "";
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" ? url.href : "";
+  } catch {
+    return "";
+  }
+}
+
+function parseClassSchedule(value) {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw Object.assign(new Error("Add at least one class schedule."), { statusCode: 400 });
+  }
+  return value.map(entry => {
+    if (!entry || typeof entry !== "object") {
+      throw Object.assign(new Error("Each schedule entry needs a day and time."), { statusCode: 400 });
+    }
+    return {
+      day: requiredText(entry.day, "Schedule day", 20),
+      time: requiredText(entry.time, "Schedule time", 30)
+    };
+  });
 }
 
 function publishedForumFilter() {
@@ -171,13 +197,13 @@ function stripeLineItem(classItem) {
   };
 }
 
-function readJson(request) {
+function readJson(request, maximumBytes = MAX_BODY_SIZE) {
   return new Promise((resolve, reject) => {
     let body = "";
     request.setEncoding("utf8");
     request.on("data", chunk => {
       body += chunk;
-      if (Buffer.byteLength(body) > MAX_BODY_SIZE) {
+      if (Buffer.byteLength(body) > maximumBytes) {
         reject(Object.assign(new Error("Request body is too large."), { statusCode: 413 }));
         request.destroy();
       }
@@ -285,6 +311,314 @@ async function handleApi(request, response, pathname, database) {
   const favorites = database.collection("favorites");
   const votes = database.collection("forumVotes");
   const comments = database.collection("forumComments");
+
+  const requireRole = async roles => {
+    const user = await currentUser(request, database);
+    if (!user) {
+      sendJson(response, 401, { error: "Please log in to access your dashboard." });
+      return null;
+    }
+    if (!roles.includes(user.role)) {
+      sendJson(response, 403, { error: "You do not have permission to perform this action." });
+      return null;
+    }
+    if (!ObjectId.isValid(user.id)) {
+      throw Object.assign(new Error("Your account ID is invalid."), { statusCode: 500 });
+    }
+    return { ...user, objectId: new ObjectId(user.id) };
+  };
+
+  if (request.method === "GET" && pathname === "/api/dashboard") {
+    const user = await requireRole(["member", "trainer", "admin"]);
+    if (!user) return;
+    const memberId = user.objectId;
+    const [saved, application] = await Promise.all([
+      favorites.find({ memberId }).toArray(),
+      applications.findOne({ $or: [{ memberId }, { email: user.email }] })
+    ]);
+    const classIds = saved.map(item => item.classId);
+    const favoritesList = classIds.length
+      ? await database.collection("classes").find({ _id: { $in: classIds } }).toArray()
+      : [];
+    const base = {
+      user: { id: user.id, name: user.name, email: user.email, image: user.image, role: user.role },
+      favorites: favoritesList.map(serializeClass)
+    };
+
+    if (user.role === "member") {
+      const paidBookings = await bookings.find({
+        memberId,
+        status: { $in: ["paid", "confirmed", "succeeded"] }
+      }).sort({ paidAt: -1, createdAt: -1 }).toArray();
+      const bookedClassIds = paidBookings.map(booking => booking.classId).filter(id => id instanceof ObjectId);
+      const bookedClasses = bookedClassIds.length
+        ? await database.collection("classes").find({ _id: { $in: bookedClassIds } }).toArray()
+        : [];
+      const classesById = new Map(bookedClasses.map(item => [item._id.toString(), item]));
+      base.bookings = paidBookings.map(booking => {
+        const classItem = classesById.get(booking.classId?.toString());
+        return classItem ? {
+          bookingId: booking._id.toString(),
+          ...serializeClass(classItem),
+          paidAt: booking.paidAt || booking.createdAt
+        } : null;
+      }).filter(Boolean);
+      base.application = application ? {
+        status: application.status || "pending",
+        feedback: application.feedback || "",
+        specialty: application.specialty || "",
+        experienceYears: application.experienceYears ?? application.experience ?? ""
+      } : null;
+      base.stats = { bookedClasses: base.bookings.length, favorites: saved.length };
+    } else if (user.role === "trainer") {
+      const trainerClasses = await database.collection("classes").find({ trainerId: memberId }).sort({ createdAt: -1 }).toArray();
+      const trainerClassIds = trainerClasses.map(item => item._id);
+      const [studentsEnrolled, forumPosts] = await Promise.all([
+        bookings.countDocuments({ classId: { $in: trainerClassIds }, status: { $in: ["paid", "confirmed", "succeeded"] } }),
+        database.collection("forumPosts").find({ authorId: memberId }).sort({ createdAt: -1 }).toArray()
+      ]);
+      base.classes = trainerClasses.map(item => ({
+        ...serializeClass(item),
+        status: item.status || "pending",
+        difficulty: item.difficulty || "",
+        bookingCount: 0
+      }));
+      if (trainerClassIds.length) {
+        const enrollmentCounts = await bookings.aggregate([
+          { $match: { classId: { $in: trainerClassIds }, status: { $in: ["paid", "confirmed", "succeeded"] } } },
+          { $group: { _id: "$classId", count: { $sum: 1 } } }
+        ]).toArray();
+        const counts = new Map(enrollmentCounts.map(item => [item._id.toString(), item.count]));
+        base.classes = base.classes.map(item => ({
+          ...item,
+          bookingCount: counts.get(item.id) || 0
+        }));
+      }
+      base.forumPosts = forumPosts.map(serializeForumPost);
+      base.stats = { classesCreated: trainerClasses.length, studentsEnrolled };
+    } else {
+      const [totalUsers, totalClasses, totalBookedClasses] = await Promise.all([
+        database.collection("user").countDocuments(),
+        database.collection("classes").countDocuments(),
+        bookings.countDocuments({ status: { $in: ["paid", "confirmed", "succeeded"] } })
+      ]);
+      base.stats = { totalUsers, totalClasses, totalBookedClasses };
+    }
+    sendJson(response, 200, base);
+    return;
+  }
+
+  if (request.method === "POST" && pathname === "/api/trainer-applications") {
+    const user = await requireRole(["member"]);
+    if (!user) return;
+    const body = await readJson(request);
+    const experienceYears = Number(body.experienceYears);
+    if (!Number.isInteger(experienceYears) || experienceYears < 0 || experienceYears > 60) {
+      sendJson(response, 400, { error: "Experience must be a whole number between 0 and 60 years." });
+      return;
+    }
+    const specialty = requiredText(body.specialty, "Specialty", 100);
+    const now = new Date();
+    const existingApplication = await applications.findOne({ $or: [{ memberId: user.objectId }, { email: user.email }] });
+    if (existingApplication && !["rejected", "withdrawn"].includes(existingApplication.status)) {
+      sendJson(response, 409, { error: "You already have an active trainer application." });
+      return;
+    }
+    const applicationFilter = existingApplication ? { _id: existingApplication._id } : { memberId: user.objectId };
+    await applications.updateOne(
+      applicationFilter,
+      {
+        $set: {
+          memberId: user.objectId,
+          name: user.name,
+          email: user.email,
+          experienceYears,
+          specialty,
+          status: "pending",
+          feedback: "",
+          updatedAt: now
+        },
+        $setOnInsert: { createdAt: now }
+      },
+      { upsert: true }
+    );
+    sendJson(response, 201, { message: "Your trainer application was submitted and is pending review." });
+    return;
+  }
+
+  if (request.method === "POST" && pathname === "/api/trainer/classes") {
+    const user = await requireRole(["trainer"]);
+    if (!user) return;
+    const body = await readJson(request);
+    const name = requiredText(body.name, "Class name", 120);
+    const category = requiredText(body.category, "Category", 80);
+    const difficulty = requiredText(body.difficulty, "Difficulty level", 40);
+    const description = requiredText(body.description, "Description", 5000);
+    const duration = Number(body.duration);
+    const price = Number(body.price);
+    const currency = String(body.currency || "usd").toLowerCase();
+    if (!Number.isInteger(duration) || duration < 1 || duration > 600) {
+      sendJson(response, 400, { error: "Duration must be between 1 and 600 minutes." });
+      return;
+    }
+    if (!Number.isFinite(price) || price <= 0 || price > 100000 || !/^[a-z]{3}$/.test(currency)) {
+      sendJson(response, 400, { error: "Enter a valid class price and three-letter currency." });
+      return;
+    }
+    const schedule = parseClassSchedule(body.schedule);
+    const imageUrl = requiredText(body.imageUrl, "Image URL", 2000);
+    if (safeHttpImageUrl(imageUrl) !== imageUrl) {
+      sendJson(response, 400, { error: "Class image must use a valid HTTPS URL." });
+      return;
+    }
+    const now = new Date();
+    const classItem = {
+      name, trainerId: user.objectId, trainerName: user.name, imageUrl, category, difficulty,
+      duration, schedule, priceInMinorUnits: Math.round(price * 100), currency,
+      description, status: "pending", createdAt: now, updatedAt: now
+    };
+    const result = await database.collection("classes").insertOne(classItem);
+    sendJson(response, 201, { class: { ...serializeClass(classItem), id: result.insertedId.toString(), status: "pending" }, message: "Class submitted for approval." });
+    return;
+  }
+
+  const trainerClassMatch = pathname.match(/^\/api\/trainer\/classes\/([a-f\d]{24})(?:\/(attendees))?$/i);
+  if (trainerClassMatch && ["GET", "PATCH", "DELETE"].includes(request.method)) {
+    const user = await requireRole(["trainer"]);
+    if (!user) return;
+    const classId = new ObjectId(trainerClassMatch[1]);
+    const classItem = await database.collection("classes").findOne({ _id: classId, trainerId: user.objectId });
+    if (!classItem) {
+      sendJson(response, 404, { error: "Your class could not be found." });
+      return;
+    }
+    if (trainerClassMatch[2] && request.method === "GET") {
+      const paidBookings = await bookings.find({
+        classId,
+        status: { $in: ["paid", "confirmed", "succeeded"] }
+      }).toArray();
+      const studentIds = paidBookings.map(booking => booking.memberId).filter(id => id instanceof ObjectId);
+      const students = studentIds.length
+        ? await database.collection("user").find({ _id: { $in: studentIds } }, { projection: { name: 1, email: 1 } }).toArray()
+        : [];
+      sendJson(response, 200, { students: students.map(student => ({ name: student.name, email: student.email })) });
+      return;
+    }
+    if (request.method === "DELETE") {
+      await database.collection("classes").deleteOne({ _id: classId, trainerId: user.objectId });
+      sendJson(response, 200, { message: "Class deleted." });
+      return;
+    }
+    if (request.method === "PATCH") {
+      const body = await readJson(request);
+      const fields = {};
+      if (body.name !== undefined) fields.name = requiredText(body.name, "Class name", 120);
+      if (body.category !== undefined) fields.category = requiredText(body.category, "Category", 80);
+      if (body.difficulty !== undefined) fields.difficulty = requiredText(body.difficulty, "Difficulty level", 40);
+      if (body.description !== undefined) fields.description = requiredText(body.description, "Description", 5000);
+      if (body.duration !== undefined) {
+        const duration = Number(body.duration);
+        if (!Number.isInteger(duration) || duration < 1 || duration > 600) {
+          sendJson(response, 400, { error: "Duration must be between 1 and 600 minutes." });
+          return;
+        }
+        fields.duration = duration;
+      }
+      if (body.price !== undefined) {
+        const price = Number(body.price);
+        if (!Number.isFinite(price) || price <= 0 || price > 100000) {
+          sendJson(response, 400, { error: "Enter a valid class price." });
+          return;
+        }
+        fields.priceInMinorUnits = Math.round(price * 100);
+      }
+      if (body.schedule !== undefined) {
+        fields.schedule = parseClassSchedule(body.schedule);
+      }
+      if (body.imageUrl !== undefined) {
+        const imageUrl = body.imageUrl ? requiredText(body.imageUrl, "Image URL", 2000) : "";
+        if (imageUrl && safeHttpImageUrl(imageUrl) !== imageUrl) {
+          sendJson(response, 400, { error: "Class image must use a valid HTTPS URL." });
+          return;
+        }
+        fields.imageUrl = imageUrl;
+      }
+      fields.updatedAt = new Date();
+      await database.collection("classes").updateOne({ _id: classId, trainerId: user.objectId }, { $set: fields });
+      sendJson(response, 200, { message: "Class updated." });
+      return;
+    }
+  }
+
+  if (request.method === "POST" && pathname === "/api/trainer/upload") {
+    const user = await requireRole(["trainer"]);
+    if (!user) return;
+    if (!IMGBB_API_KEY) {
+      sendJson(response, 503, { error: "Image uploads are not configured. Set IMGBB_API_KEY on the server." });
+      return;
+    }
+    const body = await readJson(request, 8 * 1024 * 1024);
+    if (typeof body.image !== "string" || !/^data:image\/(?:jpeg|png|webp|gif);base64,[A-Za-z0-9+/]+=*$/.test(body.image)) {
+      sendJson(response, 400, { error: "Choose a PNG, JPEG, WEBP, or GIF image." });
+      return;
+    }
+    const encodedImage = body.image.slice(body.image.indexOf(",") + 1);
+    if (Buffer.from(encodedImage, "base64").length > 5 * 1024 * 1024) {
+      sendJson(response, 413, { error: "Images must be 5 MB or smaller." });
+      return;
+    }
+    const uploadBody = new URLSearchParams({ image: encodedImage });
+    const uploadResponse = await fetch(`https://api.imgbb.com/1/upload?key=${encodeURIComponent(IMGBB_API_KEY)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: uploadBody
+    });
+    const uploadResult = await uploadResponse.json();
+    if (!uploadResponse.ok || !uploadResult.success || !uploadResult.data?.url) {
+      console.error("Image upload failed:", uploadResult.error?.message || uploadResponse.statusText);
+      sendJson(response, 502, { error: "Image upload failed. Please try another image." });
+      return;
+    }
+    sendJson(response, 200, { imageUrl: uploadResult.data.url });
+    return;
+  }
+
+  if (request.method === "POST" && pathname === "/api/trainer/forum-posts") {
+    const user = await requireRole(["trainer"]);
+    if (!user) return;
+    const body = await readJson(request);
+    const title = requiredText(body.title, "Post title", 200);
+    const content = requiredText(body.content, "Description", 10000);
+    const imageUrl = requiredText(body.imageUrl, "Image URL", 2000);
+    if (safeHttpImageUrl(imageUrl) !== imageUrl) {
+      sendJson(response, 400, { error: "Post image must use a valid HTTPS URL." });
+      return;
+    }
+    const now = new Date();
+    const post = {
+      title, content, imageUrl, authorId: user.objectId, authorName: user.name,
+      authorRole: "trainer", status: "published", category: "TRAINER", createdAt: now
+    };
+    const result = await database.collection("forumPosts").insertOne(post);
+    sendJson(response, 201, { post: serializeForumPost({ ...post, _id: result.insertedId }), message: "Your forum post is published." });
+    return;
+  }
+
+  const trainerPostMatch = pathname.match(/^\/api\/trainer\/forum-posts\/([a-f\d]{24})$/i);
+  if (request.method === "DELETE" && trainerPostMatch) {
+    const user = await requireRole(["trainer"]);
+    if (!user) return;
+    const result = await database.collection("forumPosts").deleteOne({
+      _id: new ObjectId(trainerPostMatch[1]),
+      authorId: user.objectId
+    });
+    if (!result.deletedCount) {
+      sendJson(response, 404, { error: "Your forum post could not be found." });
+      return;
+    }
+    sendJson(response, 200, { message: "Forum post deleted." });
+    return;
+  }
 
   if (request.method === "GET" && pathname === "/api/auth/config") {
     sendJson(response, 200, { googleEnabled: Boolean(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET) });
@@ -595,24 +929,6 @@ async function handleApi(request, response, pathname, database) {
       projection: { title: 1, content: 1, body: 1, description: 1, authorName: 1, authorRole: 1, authorType: 1, createdByRole: 1, role: 1, "author.name": 1, "author.role": 1, category: 1, imageUrl: 1, image: 1, coverImage: 1, createdAt: 1 }
     }).sort({ createdAt: -1 }).limit(50).toArray();
     sendJson(response, 200, { posts: posts.map(serializeForumPost) });
-    return;
-  }
-
-  if (request.method === "GET" && pathname === "/api/dashboard") {
-    const user = await currentUser(request, database);
-    if (!user) {
-      sendJson(response, 401, { error: "Please log in to view your dashboard." });
-      return;
-    }
-    const saved = await favorites.find({ memberId: new ObjectId(user.id) }).toArray();
-    const classIds = saved.map(item => item.classId);
-    const classes = classIds.length
-      ? await database.collection("classes").find({
-        _id: { $in: classIds },
-        status: { $regex: "^approved$", $options: "i" }
-      }).toArray()
-      : [];
-    sendJson(response, 200, { user, favorites: classes.map(serializeClass) });
     return;
   }
 

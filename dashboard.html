@@ -28,18 +28,19 @@
     </header>
     <main>
       <section class="dashboard-page section-wrap">
-        <div class="section-heading classes-page-heading">
-          <div>
-            <div class="eyebrow"><span class="eyebrow-dot"></span> <span id="dashboard-eyebrow">YOUR KINETRA SPACE</span></div>
+        <div class="dashboard-shell">
+          <aside class="dashboard-sidebar">
+            <div class="eyebrow"><span class="eyebrow-dot"></span> YOUR KINETRA SPACE</div>
             <h1 id="dashboard-title">Your dashboard</h1>
-            <p>Welcome, <span id="dashboard-member-name">member.</span> <span class="dashboard-role-badge" id="dashboard-role">member</span></p>
-            <p id="dashboard-description">Your saved classes, ready whenever you are.</p>
+            <p class="dashboard-welcome">Welcome, <span id="dashboard-member-name">member</span></p>
+            <span class="dashboard-role-badge" id="dashboard-role">member</span>
+            <nav class="dashboard-nav" id="dashboard-nav" aria-label="Dashboard navigation"></nav>
+          </aside>
+          <div class="dashboard-main">
+            <p id="dashboard-state" class="content-state" role="status">Loading your dashboard…</p>
+            <section id="dashboard-view" hidden></section>
           </div>
-          <div class="dashboard-role-links" id="dashboard-role-links"></div>
         </div>
-        <p class="content-state" id="dashboard-state" role="status">Loading your favorite classes…</p>
-        <div class="class-grid favorites-grid" id="dashboard-favorites" aria-live="polite"></div>
-        <p class="empty-state" id="dashboard-empty" hidden>You haven't saved any classes yet. Browse classes and tap “Add to Favorites” to keep them here.</p>
       </section>
     </main>
     <footer class="site-footer">
@@ -70,6 +71,10 @@
         <p class="modal-footnote">No pressure. Just good things ahead.</p>
       </section>
     </div>
+    <dialog class="dashboard-dialog" id="dashboard-dialog">
+      <form method="dialog" class="dashboard-dialog-close"><button type="submit" aria-label="Close dialog">×</button></form>
+      <div id="dashboard-dialog-content"></div>
+    </dialog>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </body>
 </html>
