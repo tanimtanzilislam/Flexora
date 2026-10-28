@@ -30,11 +30,12 @@
       <section class="dashboard-page section-wrap">
         <div class="section-heading classes-page-heading">
           <div>
-            <div class="eyebrow"><span class="eyebrow-dot"></span> YOUR KINETRA SPACE</div>
-            <h1>Welcome, <span id="dashboard-member-name">member.</span></h1>
-            <p>Your saved classes, ready whenever you are.</p>
+            <div class="eyebrow"><span class="eyebrow-dot"></span> <span id="dashboard-eyebrow">YOUR KINETRA SPACE</span></div>
+            <h1 id="dashboard-title">Your dashboard</h1>
+            <p>Welcome, <span id="dashboard-member-name">member.</span> <span class="dashboard-role-badge" id="dashboard-role">member</span></p>
+            <p id="dashboard-description">Your saved classes, ready whenever you are.</p>
           </div>
-          <a class="button button-dark classes-back-link" href="/classes">Find a class <span aria-hidden="true">↗</span></a>
+          <div class="dashboard-role-links" id="dashboard-role-links"></div>
         </div>
         <p class="content-state" id="dashboard-state" role="status">Loading your favorite classes…</p>
         <div class="class-grid favorites-grid" id="dashboard-favorites" aria-live="polite"></div>

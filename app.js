@@ -439,7 +439,35 @@ async function loadDashboardPage() {
       return;
     }
     if (!response.ok) throw new Error(result.error || "Your dashboard could not be loaded.");
+    const role = ["member", "trainer", "admin"].includes(result.user.role) ? result.user.role : "member";
+    const dashboardContent = {
+      member: {
+        eyebrow: "YOUR MEMBER SPACE",
+        title: "Member dashboard",
+        description: "Your saved classes, ready whenever you are.",
+        links: [["Find a class", "/classes"], ["Community forum", "/community"]]
+      },
+      trainer: {
+        eyebrow: "YOUR TRAINER SPACE",
+        title: "Trainer dashboard",
+        description: "Explore the class directory and connect with the Kinetra community.",
+        links: [["Find a class", "/classes"], ["Community forum", "/community"]]
+      },
+      admin: {
+        eyebrow: "KINETRA ADMIN",
+        title: "Admin dashboard",
+        description: "Explore the class directory and Kinetra community.",
+        links: [["Class directory", "/classes"], ["Community forum", "/community"]]
+      }
+    }[role];
     document.querySelector("#dashboard-member-name").textContent = `${result.user.name || "member"}.`;
+    document.querySelector("#dashboard-role").textContent = role;
+    document.querySelector("#dashboard-eyebrow").textContent = dashboardContent.eyebrow;
+    document.querySelector("#dashboard-title").textContent = dashboardContent.title;
+    document.querySelector("#dashboard-description").textContent = dashboardContent.description;
+    document.querySelector("#dashboard-role-links").innerHTML = dashboardContent.links
+      .map(([label, href]) => `<a class="button button-dark button-small" href="${href}">${label} <span aria-hidden="true">↗</span></a>`)
+      .join("");
     renderDashboardFavorites(result.favorites || []);
     dashboardState.hidden = true;
   } catch (error) {
@@ -835,35 +863,41 @@ modalForm.addEventListener("submit", async event => {
   const submittedModal = activeModal;
   const submitButton = modalForm.querySelector("button[type='submit']");
   const formData = new FormData(modalForm);
-  const payload = {
-    name: formData.get("name"),
-    email: formData.get("email"),
-    password: formData.get("password")
-  };
-
-  if (submittedModal === "trainer") payload.experience = formData.get("message");
-  const endpoints = {
-    join: "/api/auth/register",
-    signin: "/api/auth/login",
-    trainer: "/api/trainer-applications"
+  const credentials = {
+    email: String(formData.get("email")),
+    password: String(formData.get("password"))
   };
 
   submitButton.disabled = true;
   try {
-    const response = await fetch(endpoints[submittedModal], {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-    const result = await readJsonResponse(response);
-    if (!response.ok) throw new Error(result.error || "The request could not be completed.");
     if (submittedModal === "join" || submittedModal === "signin") {
+      const result = submittedModal === "join"
+        ? await authClient.signUp.email({
+          ...credentials,
+          name: String(formData.get("name"))
+        })
+        : await authClient.signIn.email(credentials);
+      if (result.error) throw new Error(result.error.message || "Authentication could not be completed.");
       const returnTo = new URLSearchParams(window.location.search).get("returnTo");
       if (returnTo?.startsWith("/") && !returnTo.startsWith("//") && !returnTo.includes("\\")) {
         window.location.assign(returnTo);
         return;
       }
+      window.location.assign("/dashboard");
+      return;
     }
+
+    const response = await fetch("/api/trainer-applications", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: formData.get("name"),
+        email: credentials.email,
+        experience: formData.get("message")
+      })
+    });
+    const result = await readJsonResponse(response);
+    if (!response.ok) throw new Error(result.error || "The request could not be completed.");
     if (activeModal === submittedModal && !backdrop.hidden) {
       closeModal();
       showToast(result.message);

@@ -249,6 +249,8 @@ h1 span, h2 span { color: #91ad68; font-family: Georgia, serif; font-style: ital
 .comment-actions .text-link, .comment-edit-form .text-link { border: 0; background: none; font-size: 10px; cursor: pointer; }
 .comment-delete { color: #a1493e; }
 .dashboard-page { min-height: 65vh; }
+.dashboard-role-badge { display: inline-block; padding: 5px 9px; border-radius: 20px; background: #e5e8df; color: #4f574e; font-size: 9px; font-weight: 700; text-transform: uppercase; vertical-align: middle; letter-spacing: .7px; }
+.dashboard-role-links { display: flex; flex-wrap: wrap; gap: 10px; }
 .favorites-grid { margin-top: 30px; }
 .favorite-remove-link { color: #72796e; }
 .payment-dashboard-link[hidden] { display: none; }
@@ -311,6 +313,7 @@ h1 span, h2 span { color: #91ad68; font-family: Georgia, serif; font-style: ital
   .trust-strip span:nth-of-type(2), .trust-strip span:nth-of-type(3), .trust-strip i:nth-of-type(2), .trust-strip i:nth-of-type(3) { display: none; }
   .section-wrap { padding: 70px 22px; }
   .section-heading { display: block; }
+  .dashboard-role-links { margin-top: 19px; }
   .section-heading h2, .trainer-copy h2 { font-size: 41px; letter-spacing: -2.6px; }
   .classes-page-heading h1 { font-size: clamp(43px, 12vw, 58px); margin-top: 17px; letter-spacing: -3px; }
   .classes-page-heading .classes-back-link { margin-top: 19px; }
