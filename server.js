@@ -5,20 +5,19 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const { createReadStream } = require("node:fs");
 const { stat } = require("node:fs/promises");
-const { promisify } = require("node:util");
 const { MongoClient, ObjectId } = require("mongodb");
 const Stripe = require("stripe");
 
 const PORT = Number(process.env.PORT || 3000);
 const MONGODB_URI = process.env.MONGODB_URI;
 const APP_BASE_URL = process.env.APP_BASE_URL || `http://localhost:${PORT}`;
+const BETTER_AUTH_SECRET = process.env.BETTER_AUTH_SECRET;
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const PUBLIC_DIR = __dirname;
 const MAX_BODY_SIZE = 10 * 1024;
-const SESSION_COOKIE = "kinetra_session";
-const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
-const PASSWORD_MIN_LENGTH = 10;
 const PUBLIC_FILES = new Set(["/", "/classes", "/community", "/index.html", "/classes.html", "/community.html", "/forum-post.html", "/styles.css", "/app.bundle.js"]);
 const PRIVATE_FILES = new Set(["/class-details.html", "/payment.html", "/dashboard.html"]);
 const MIME_TYPES = {
@@ -26,7 +25,9 @@ const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8"
 };
-const scrypt = promisify(crypto.scrypt);
+let auth;
+let authNodeHandler;
+let fromNodeHeaders;
 
 if (!MONGODB_URI) {
   console.error("MONGODB_URI is missing. Add it to your local .env file.");
@@ -45,62 +46,16 @@ function sendJson(response, statusCode, body, headers = {}) {
   response.end(JSON.stringify(body));
 }
 
-function sha256(value) {
-  return crypto.createHash("sha256").update(value).digest("hex");
-}
-
-function parseCookies(header = "") {
-  return Object.fromEntries(header.split(";").map(part => {
-    const separator = part.indexOf("=");
-    if (separator < 0) return ["", ""];
-    return [part.slice(0, separator).trim(), part.slice(separator + 1).trim()];
-  }).filter(([key]) => key));
-}
-
-function sessionCookie(token, maxAgeSeconds) {
-  const secure = new URL(APP_BASE_URL).protocol === "https:" ? "; Secure" : "";
-  return `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeconds}${secure}`;
-}
-
 async function currentUser(request, database) {
-  const token = parseCookies(request.headers.cookie)[SESSION_COOKIE];
-  if (!token) return null;
-  const session = await database.collection("sessions").findOne({
-    tokenHash: sha256(token),
-    expiresAt: { $gt: new Date() }
-  });
+  const session = await auth.api.getSession({ headers: fromNodeHeaders(request.headers) });
   if (!session) return null;
-  const member = await database.collection("members").findOne(
-    { _id: session.memberId },
-    { projection: { name: 1, email: 1, role: 1 } }
-  );
-  return member ? { id: member._id.toString(), name: member.name, email: member.email, role: member.role } : null;
-}
-
-async function createSession(memberId, database) {
-  const token = crypto.randomBytes(32).toString("base64url");
-  const expiresAt = new Date(Date.now() + SESSION_DURATION_MS);
-  await database.collection("sessions").insertOne({
-    tokenHash: sha256(token),
-    memberId,
-    createdAt: new Date(),
-    expiresAt
-  });
-  return { token, expiresAt };
-}
-
-async function hashPassword(password) {
-  const salt = crypto.randomBytes(16);
-  const derivedKey = await scrypt(password, salt, 64);
-  return `${salt.toString("hex")}:${derivedKey.toString("hex")}`;
-}
-
-async function verifyPassword(password, storedHash) {
-  if (typeof storedHash !== "string") return false;
-  const [saltHex, keyHex] = storedHash.split(":");
-  if (!/^[\da-f]{32}$/i.test(saltHex || "") || !/^[\da-f]{128}$/i.test(keyHex || "")) return false;
-  const derivedKey = await scrypt(password, Buffer.from(saltHex, "hex"), 64);
-  return crypto.timingSafeEqual(derivedKey, Buffer.from(keyHex, "hex"));
+  return {
+    id: session.user.id,
+    name: session.user.name,
+    email: session.user.email,
+    image: session.user.image || "",
+    role: session.user.role || "member"
+  };
 }
 
 function ensureSameOrigin(request) {
@@ -154,6 +109,20 @@ function serializeForumPost(item) {
   };
 }
 
+function serializeForumComment(item) {
+  return {
+    id: item._id.toString(),
+    parentCommentId: item.parentCommentId?.toString() || null,
+    authorId: item.memberId.toString(),
+    authorName: item.authorName,
+    authorImage: item.authorImage || "",
+    content: item.content,
+    deleted: Boolean(item.deleted),
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt || null
+  };
+}
+
 function serializeClass(item) {
   const { _id, ...fields } = item;
   return {
@@ -166,6 +135,18 @@ function serializeClass(item) {
     schedule: fields.schedule || fields.schedules || null,
     imageUrl: fields.imageUrl || fields.image || ""
   };
+}
+
+async function serializeClassForCheckout(item) {
+  const classItem = serializeClass(item);
+  if (stripe && typeof classItem.stripePriceId === "string" && /^price_[A-Za-z0-9]+$/.test(classItem.stripePriceId)) {
+    const price = await stripe.prices.retrieve(classItem.stripePriceId);
+    if (price.unit_amount !== null) {
+      classItem.priceInMinorUnits = price.unit_amount;
+      classItem.currency = price.currency;
+    }
+  }
+  return classItem;
 }
 
 function stripeLineItem(classItem) {
@@ -299,68 +280,14 @@ async function serveStatic(request, response, pathname, privatePage = false) {
 }
 
 async function handleApi(request, response, pathname, database) {
-  const members = database.collection("members");
   const applications = database.collection("trainerApplications");
   const bookings = database.collection("bookings");
   const favorites = database.collection("favorites");
+  const votes = database.collection("forumVotes");
+  const comments = database.collection("forumComments");
 
-  if (request.method === "GET" && pathname === "/api/auth/me") {
-    const user = await currentUser(request, database);
-    sendJson(response, 200, { authenticated: Boolean(user), user });
-    return;
-  }
-
-  if (request.method === "POST" && ["/api/auth/register", "/api/auth/login", "/api/auth/logout"].includes(pathname)) {
-    ensureSameOrigin(request);
-    const sessions = database.collection("sessions");
-    const token = parseCookies(request.headers.cookie)[SESSION_COOKIE];
-    if (pathname === "/api/auth/logout") {
-      if (token) await sessions.deleteOne({ tokenHash: sha256(token) });
-      sendJson(response, 200, { message: "You have been signed out." }, {
-        "Set-Cookie": sessionCookie("", 0)
-      });
-      return;
-    }
-
-    const body = await readJson(request);
-    const email = validEmail(body.email);
-    if (typeof body.password !== "string" || body.password.length < PASSWORD_MIN_LENGTH || body.password.length > 128) {
-      throw Object.assign(new Error(`Password must be between ${PASSWORD_MIN_LENGTH} and 128 characters.`), { statusCode: 400 });
-    }
-
-    let member;
-    if (pathname === "/api/auth/register") {
-      const name = requiredText(body.name, "Name", 100);
-      const passwordHash = await hashPassword(body.password);
-      try {
-        const result = await members.insertOne({
-          name,
-          email,
-          passwordHash,
-          role: "member",
-          createdAt: new Date()
-        });
-        member = { _id: result.insertedId, name, email, role: "member" };
-      } catch (error) {
-        if (error.code === 11000) {
-          throw Object.assign(new Error("An account with that email already exists. Please log in."), { statusCode: 409 });
-        }
-        throw error;
-      }
-    } else {
-      member = await members.findOne({ email });
-      if (!member || !(await verifyPassword(body.password, member.passwordHash))) {
-        throw Object.assign(new Error("Email or password is incorrect."), { statusCode: 401 });
-      }
-    }
-
-    const session = await createSession(member._id, database);
-    sendJson(response, 200, {
-      authenticated: true,
-      user: { id: member._id.toString(), name: member.name, email: member.email, role: member.role }
-    }, {
-      "Set-Cookie": sessionCookie(session.token, Math.floor(SESSION_DURATION_MS / 1000))
-    });
+  if (request.method === "GET" && pathname === "/api/auth/config") {
+    sendJson(response, 200, { googleEnabled: Boolean(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET) });
     return;
   }
 
@@ -391,7 +318,7 @@ async function handleApi(request, response, pathname, database) {
       })
     ]);
     sendJson(response, 200, {
-      class: { ...serializeClass(classItem), bookingCount },
+      class: { ...await serializeClassForCheckout(classItem), bookingCount },
       alreadyBooked: Boolean(booking),
       favorited: Boolean(favorite)
     });
@@ -490,8 +417,152 @@ async function handleApi(request, response, pathname, database) {
     return;
   }
 
+  const forumPostVoteMatch = pathname.match(/^\/api\/community\/([a-f\d]{24})\/votes$/i);
+  if (forumPostVoteMatch && ["POST", "DELETE"].includes(request.method)) {
+    const user = await currentUser(request, database);
+    if (!user) {
+      sendJson(response, 401, { error: "Please log in to vote on community posts." });
+      return;
+    }
+    const postId = new ObjectId(forumPostVoteMatch[1]);
+    const post = await database.collection("forumPosts").findOne({ ...publishedForumFilter(), _id: postId });
+    if (!post) {
+      sendJson(response, 404, { error: "Community post not found." });
+      return;
+    }
+    const memberId = new ObjectId(user.id);
+    const existingVote = await votes.findOne({ postId, memberId });
+    if (request.method === "DELETE") {
+      if (existingVote) await votes.deleteOne({ _id: existingVote._id });
+    } else {
+      const body = await readJson(request);
+      if (!["like", "dislike"].includes(body.vote)) {
+        sendJson(response, 400, { error: "Choose like or dislike." });
+        return;
+      }
+      if (existingVote?.vote === body.vote) {
+        sendJson(response, 409, { error: "You have already voted this way.", alreadyVoted: true });
+        return;
+      }
+      if (existingVote) {
+        await votes.updateOne({ _id: existingVote._id }, { $set: { vote: body.vote, updatedAt: new Date() } });
+      } else {
+        try {
+          await votes.insertOne({ postId, memberId, vote: body.vote, createdAt: new Date() });
+        } catch (error) {
+          if (error.code !== 11000) throw error;
+          sendJson(response, 409, { error: "You have already voted on this post.", alreadyVoted: true });
+          return;
+        }
+      }
+    }
+    const [likes, dislikes, vote] = await Promise.all([
+      votes.countDocuments({ postId, vote: "like" }),
+      votes.countDocuments({ postId, vote: "dislike" }),
+      votes.findOne({ postId, memberId })
+    ]);
+    sendJson(response, 200, {
+      likes,
+      dislikes,
+      userVote: vote?.vote || null,
+      message: request.method === "DELETE" ? "Your vote was removed." : "Your vote was saved."
+    });
+    return;
+  }
+
+  const forumCommentMatch = pathname.match(/^\/api\/community\/([a-f\d]{24})\/comments(?:\/([a-f\d]{24}))?$/i);
+  if (forumCommentMatch && ["POST", "PATCH", "DELETE"].includes(request.method)) {
+    const user = await currentUser(request, database);
+    if (!user) {
+      sendJson(response, 401, { error: "Please log in to participate in the discussion." });
+      return;
+    }
+    const postId = new ObjectId(forumCommentMatch[1]);
+    const post = await database.collection("forumPosts").findOne({ ...publishedForumFilter(), _id: postId });
+    if (!post) {
+      sendJson(response, 404, { error: "Community post not found." });
+      return;
+    }
+    const memberId = new ObjectId(user.id);
+    if (request.method === "POST" && !forumCommentMatch[2]) {
+      const body = await readJson(request);
+      const content = requiredText(body.content, "Comment", 2000);
+      let parentCommentId = null;
+      if (body.parentCommentId) {
+        if (!ObjectId.isValid(body.parentCommentId)) {
+          sendJson(response, 400, { error: "A valid parent comment is required." });
+          return;
+        }
+        parentCommentId = new ObjectId(body.parentCommentId);
+        const parent = await comments.findOne({ _id: parentCommentId, postId });
+        if (!parent) {
+          sendJson(response, 404, { error: "Parent comment not found." });
+          return;
+        }
+      }
+      const result = await comments.insertOne({
+        postId,
+        parentCommentId,
+        memberId,
+        authorName: user.name,
+        authorImage: user.image,
+        content,
+        deleted: false,
+        createdAt: new Date(),
+        updatedAt: null
+      });
+      sendJson(response, 201, {
+        comment: serializeForumComment({
+          _id: result.insertedId,
+          postId,
+          parentCommentId,
+          memberId,
+          authorName: user.name,
+          authorImage: user.image,
+          content,
+          createdAt: new Date()
+        }),
+        message: "Your comment was posted."
+      });
+      return;
+    }
+
+    if (!forumCommentMatch[2]) {
+      sendJson(response, 405, { error: "A comment ID is required." });
+      return;
+    }
+    const commentId = new ObjectId(forumCommentMatch[2]);
+    const comment = await comments.findOne({ _id: commentId, postId, memberId });
+    if (!comment) {
+      sendJson(response, 404, { error: "Your comment could not be found." });
+      return;
+    }
+    if (request.method === "PATCH") {
+      const body = await readJson(request);
+      const content = requiredText(body.content, "Comment", 2000);
+      await comments.updateOne({ _id: commentId, postId, memberId }, { $set: { content, updatedAt: new Date() } });
+      sendJson(response, 200, { message: "Your comment was updated." });
+      return;
+    }
+    const hasReplies = await comments.countDocuments({ postId, parentCommentId: commentId });
+    if (hasReplies) {
+      await comments.updateOne({ _id: commentId, postId, memberId }, {
+        $set: { content: "This comment was deleted.", deleted: true, updatedAt: new Date() }
+      });
+    } else {
+      await comments.deleteOne({ _id: commentId, postId, memberId });
+    }
+    sendJson(response, 200, { message: "Your comment was deleted." });
+    return;
+  }
+
   const forumPostMatch = pathname.match(/^\/api\/community\/([a-f\d]{24})$/i);
   if (request.method === "GET" && forumPostMatch) {
+    const user = await currentUser(request, database);
+    if (!user) {
+      sendJson(response, 401, { error: "Please log in to view this community post." });
+      return;
+    }
     const item = await database.collection("forumPosts").findOne({
       ...publishedForumFilter(),
       _id: new ObjectId(forumPostMatch[1])
@@ -500,7 +571,22 @@ async function handleApi(request, response, pathname, database) {
       sendJson(response, 404, { error: "Community post not found." });
       return;
     }
-    sendJson(response, 200, { post: serializeForumPost(item) });
+    const postId = item._id;
+    const memberId = new ObjectId(user.id);
+    const [likes, dislikes, vote, postComments] = await Promise.all([
+      votes.countDocuments({ postId, vote: "like" }),
+      votes.countDocuments({ postId, vote: "dislike" }),
+      votes.findOne({ postId, memberId }),
+      comments.find({ postId }).sort({ createdAt: 1 }).limit(500).toArray()
+    ]);
+    sendJson(response, 200, {
+      post: serializeForumPost(item),
+      likes,
+      dislikes,
+      userVote: vote?.vote || null,
+      comments: postComments.map(serializeForumComment),
+      currentUserId: user.id
+    });
     return;
   }
 
@@ -829,7 +915,7 @@ async function handleApi(request, response, pathname, database) {
     return;
   }
 
-  if (!["POST", "DELETE"].includes(request.method)) {
+  if (!["POST", "PATCH", "DELETE"].includes(request.method)) {
     sendJson(response, 405, { error: "Method not allowed." });
     return;
   }
@@ -928,15 +1014,66 @@ async function handleStripeWebhook(request, response, database) {
 }
 
 async function main() {
+  if (!BETTER_AUTH_SECRET || BETTER_AUTH_SECRET.length < 32) {
+    throw new Error("BETTER_AUTH_SECRET must be set to at least 32 characters.");
+  }
+  const [
+    { betterAuth },
+    { mongodbAdapter },
+    { toNodeHandler, fromNodeHeaders: nodeHeadersToWebHeaders },
+    { createAuthMiddleware, APIError }
+  ] = await Promise.all([
+    import("better-auth"),
+    import("better-auth/adapters/mongodb"),
+    import("better-auth/node"),
+    import("better-auth/api")
+  ]);
+
   await client.connect();
   const database = client.db("flexora");
+  fromNodeHeaders = nodeHeadersToWebHeaders;
+  auth = betterAuth({
+    appName: "Kinetra",
+    baseURL: APP_BASE_URL,
+    secret: BETTER_AUTH_SECRET,
+    database: mongodbAdapter(database, { client, transaction: false }),
+    emailAndPassword: {
+      enabled: true,
+      minPasswordLength: 6,
+      maxPasswordLength: 128
+    },
+    socialProviders: GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET
+      ? { google: { clientId: GOOGLE_CLIENT_ID, clientSecret: GOOGLE_CLIENT_SECRET } }
+      : {},
+    user: {
+      additionalFields: {
+        role: { type: "string", required: false, defaultValue: "member", input: false }
+      }
+    },
+    advanced: {
+      database: { generateId: false }
+    },
+    hooks: {
+      before: createAuthMiddleware(async context => {
+        if (context.path !== "/sign-up/email") return;
+        const password = context.body?.password;
+        if (typeof password !== "string" || !/[a-z]/.test(password) || !/[A-Z]/.test(password)) {
+          throw new APIError("BAD_REQUEST", {
+            message: "Password must include at least one uppercase and one lowercase letter."
+          });
+        }
+      })
+    }
+  });
+  authNodeHandler = toNodeHandler(auth);
   await Promise.all([
-    database.collection("members").createIndex({ email: 1 }, { unique: true }),
     database.collection("bookings").createIndex({ className: 1, status: 1 }),
     database.collection("forumPosts").createIndex({ createdAt: -1 }),
-    database.collection("sessions").createIndex({ tokenHash: 1 }, { unique: true }),
-    database.collection("sessions").createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
     database.collection("favorites").createIndex({ memberId: 1, classId: 1 }, { unique: true }),
+    database.collection("forumVotes").createIndex({ postId: 1, memberId: 1 }, { unique: true }),
+    database.collection("forumVotes").createIndex({ postId: 1, vote: 1 }),
+    database.collection("forumComments").createIndex({ postId: 1, createdAt: 1 }),
+    database.collection("forumComments").createIndex({ postId: 1, parentCommentId: 1 }),
     database.collection("bookings").createIndex(
       { memberId: 1, classId: 1 },
       { unique: true, partialFilterExpression: { memberId: { $type: "objectId" }, classId: { $type: "objectId" } } }
@@ -949,7 +1086,11 @@ async function main() {
       const privateClassRoute = request.method === "GET" && url.pathname.match(/^\/classes\/([a-f\d]{24})$/i);
       const privatePaymentRoute = request.method === "GET" && url.pathname === "/payment";
       const privateDashboardRoute = request.method === "GET" && url.pathname === "/dashboard";
-      if (request.method === "POST" && url.pathname === "/api/stripe/webhook") {
+      if (url.pathname === "/api/auth/config") {
+        await handleApi(request, response, url.pathname, database);
+      } else if (url.pathname.startsWith("/api/auth/")) {
+        await authNodeHandler(request, response);
+      } else if (request.method === "POST" && url.pathname === "/api/stripe/webhook") {
         await handleStripeWebhook(request, response, database);
       } else if (privateClassRoute || privatePaymentRoute || privateDashboardRoute) {
         const user = await currentUser(request, database);
@@ -965,7 +1106,7 @@ async function main() {
           await serveStatic(request, response, privatePath, true);
         }
       } else if (url.pathname.startsWith("/api/")) {
-        if (["POST", "DELETE"].includes(request.method) && url.pathname !== "/api/stripe/webhook") ensureSameOrigin(request);
+        if (["POST", "PATCH", "DELETE"].includes(request.method) && url.pathname !== "/api/stripe/webhook") ensureSameOrigin(request);
         await handleApi(request, response, url.pathname, database);
       } else if (request.method === "GET" || request.method === "HEAD") {
         await serveStatic(request, response, url.pathname);

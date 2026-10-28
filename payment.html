@@ -73,10 +73,12 @@
         <p class="modal-description" id="modal-description"></p>
         <form id="modal-form">
           <label class="form-field" id="name-field" hidden>Your name<input name="name" autocomplete="name" placeholder="How should we call you?" /></label>
+          <label class="form-field" id="image-field" hidden>Profile image URL<input name="image" type="url" autocomplete="url" placeholder="https://example.com/your-photo.jpg" /></label>
           <label class="form-field" id="email-field">Email address<input name="email" type="email" autocomplete="email" placeholder="you@example.com" required /></label>
-          <label class="form-field" id="password-field" hidden>Password<input name="password" type="password" autocomplete="current-password" minlength="10" maxlength="128" placeholder="At least 10 characters" /></label>
+          <label class="form-field" id="password-field" hidden>Password<input name="password" type="password" autocomplete="current-password" minlength="6" maxlength="128" pattern="(?=.*[a-z])(?=.*[A-Z]).{6,}" title="Use at least 6 characters with one uppercase and one lowercase letter." placeholder="At least 6 characters, upper and lowercase" /></label>
           <label class="form-field" id="message-field" hidden>Tell us a little about your coaching<input name="message" placeholder="Your experience and what you teach" /></label>
           <button class="button button-lime modal-submit" type="submit">Continue <span aria-hidden="true">↗</span></button>
+          <button class="button button-google" id="google-sign-in" type="button" hidden>Continue with Google</button>
         </form>
         <p class="modal-footnote">No pressure. Just good things ahead.</p>
       </section>

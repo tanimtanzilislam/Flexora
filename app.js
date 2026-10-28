@@ -1,4 +1,7 @@
 import { animate, inView } from "motion";
+import { createAuthClient } from "better-auth/client";
+
+const authClient = createAuthClient();
 
 const filterContainer = document.querySelector("#class-filters") || document.querySelector(".filter-list");
 let filterButtons = [];
@@ -12,6 +15,9 @@ const communityPageState = document.querySelector("#community-page-state");
 const communityPagePosts = document.querySelector("#community-page-posts");
 const forumPostState = document.querySelector("#forum-post-state");
 const forumPostContent = document.querySelector("#forum-post-content");
+const forumPostInteractions = document.querySelector("#forum-post-interactions");
+const forumCommentList = document.querySelector("#forum-comment-list");
+const forumCommentForm = document.querySelector("#forum-comment-form");
 const dashboardState = document.querySelector("#dashboard-state");
 const dashboardFavorites = document.querySelector("#dashboard-favorites");
 const dashboardEmpty = document.querySelector("#dashboard-empty");
@@ -203,6 +209,14 @@ async function loadForumPostPage() {
     document.querySelector("#forum-post-category").textContent = post.category || "COMMUNITY";
     document.querySelector("#forum-post-author").textContent = `By ${post.authorName} · ${post.authorRole}`;
     document.querySelector("#forum-post-body").textContent = post.content;
+    document.querySelector("#forum-like-count").textContent = String(result.likes);
+    document.querySelector("#forum-dislike-count").textContent = String(result.dislikes);
+    for (const button of forumPostInteractions.querySelectorAll("[data-vote]")) {
+      const selected = button.dataset.vote === result.userVote;
+      button.setAttribute("aria-pressed", String(selected));
+      button.classList.toggle("selected", selected);
+    }
+    renderForumComments(result.comments || [], result.currentUserId);
     const imageContainer = document.querySelector("#forum-post-image");
     const imageUrl = safeImageUrl(post.imageUrl);
     if (imageUrl) {
@@ -221,6 +235,44 @@ async function loadForumPostPage() {
   } catch (error) {
     showContentError(forumPostState, error.message);
   }
+}
+
+function renderForumComments(comments, currentUserId) {
+  const commentsByParent = new Map();
+  for (const comment of comments) {
+    const parentId = comment.parentCommentId || "";
+    const siblings = commentsByParent.get(parentId) || [];
+    siblings.push(comment);
+    commentsByParent.set(parentId, siblings);
+  }
+
+  function renderBranch(parentId, depth) {
+    return (commentsByParent.get(parentId) || []).map(comment => {
+      const isOwner = comment.authorId === currentUserId;
+      const avatarUrl = safeImageUrl(comment.authorImage);
+      const avatar = avatarUrl
+        ? `<img src="${escapeHtml(avatarUrl)}" alt="" />`
+        : `<span class="author-initial" aria-hidden="true">${escapeHtml(String(comment.authorName || "M").trim().charAt(0).toUpperCase())}</span>`;
+      const content = comment.deleted ? "This comment was deleted." : comment.content;
+      const controls = comment.deleted ? "" : `<div class="comment-actions">
+        <button class="text-link" type="button" data-reply-comment="${escapeHtml(comment.id)}">Reply</button>
+        ${isOwner ? `<button class="text-link" type="button" data-edit-comment="${escapeHtml(comment.id)}">Edit</button><button class="text-link comment-delete" type="button" data-delete-comment="${escapeHtml(comment.id)}">Delete</button>` : ""}
+      </div>`;
+      return `<article class="forum-comment${comment.deleted ? " deleted" : ""}" style="--comment-depth:${Math.min(depth, 5)}" data-comment-id="${escapeHtml(comment.id)}">
+        <div class="comment-heading">${avatar}<span><strong>${escapeHtml(comment.authorName || "Member")}</strong><small>${escapeHtml(new Date(comment.createdAt).toLocaleString())}${comment.updatedAt ? " · edited" : ""}</small></span></div>
+        <p class="forum-comment-body">${escapeHtml(content)}</p>
+        ${controls}
+        <form class="comment-reply-form" data-comment-form data-parent-comment-id="${escapeHtml(comment.id)}" hidden>
+          <label class="form-field">Your reply<textarea name="content" maxlength="2000" required placeholder="Write a thoughtful reply…"></textarea></label>
+          <button class="button button-dark button-small" type="submit">Post reply</button>
+        </form>
+        <div class="forum-comment-replies">${renderBranch(comment.id, depth + 1)}</div>
+      </article>`;
+    }).join("");
+  }
+
+  forumCommentList.innerHTML = renderBranch("", 0);
+  document.querySelector("#forum-comment-count").textContent = String(comments.length);
 }
 
 function renderDashboardFavorites(classes) {
@@ -712,7 +764,6 @@ loadHomeContent();
 if (new URLSearchParams(window.location.search).get("auth") === "login" && modalContent.signin) {
   openModal("signin");
 }
-
 const menuToggle = document.querySelector(".menu-toggle");
 const mainNav = document.querySelector(".main-nav");
 menuToggle.addEventListener("click", () => {
