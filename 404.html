@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Page not found — Kinetra</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/app.bundle.js" defer></script>
+  </head>
+  <body data-page="error">
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="Kinetra home"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><span>kinetra<span class="brand-period">.</span></span></a>
+      <nav class="main-nav" aria-label="Main navigation">
+        <a class="nav-link" href="/">Home</a>
+        <a class="nav-link" href="/classes">All Classes</a>
+        <a class="nav-link" href="/community">Community Forum</a>
+      </nav>
+      <div class="header-actions"></div>
+    </header>
+    <main class="error-page">
+      <svg class="error-illustration" viewBox="0 0 420 220" role="img" aria-label="Lost trail illustration">
+        <rect width="420" height="220" rx="12" fill="#eef3e4"/>
+        <circle cx="110" cy="120" r="46" fill="#d4f274"/>
+        <path d="M70 170c40-30 90-20 140 8s90 18 140-18" fill="none" stroke="#304c39" stroke-width="6"/>
+        <text x="210" y="64" text-anchor="middle" font-size="42" font-family="Georgia, serif" fill="#1b201b">404</text>
+      </svg>
+      <h1>This path is <span>off the map.</span></h1>
+      <p>The page you wanted is not here. Head home and pick a class that is.</p>
+      <a class="button button-lime" href="/">Back to Home <span aria-hidden="true">↗</span></a>
+    </main>
+    <footer class="site-footer">
+      <div class="footer-main">
+        <div class="footer-brand"><a class="brand brand-light" href="/" aria-label="Kinetra home"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><span>kinetra<span class="brand-period">.</span></span></a><p>Find your people.<br />Feel like yourself.</p></div>
+        <div class="footer-column"><span class="footer-label">EXPLORE</span><a href="/classes">Find a class</a><a href="/community">Community forum</a></div>
+        <div class="footer-column"><span class="footer-label">CONTACT</span><a href="mailto:hello@kinetra.fit">hello@kinetra.fit</a><a href="https://x.com/" target="_blank" rel="noopener noreferrer" aria-label="Kinetra on X">𝕏 on X</a></div>
+      </div>
+      <div class="footer-bottom"><span>© 2025 Kinetra. Made for moving.</span><span>Be kind to yourself out there <b>♡</b></span><span><a href="https://instagram.com/" target="_blank" rel="noopener noreferrer">Instagram</a> &nbsp;·&nbsp; <a href="https://x.com/" target="_blank" rel="noopener noreferrer" aria-label="Kinetra on X">𝕏</a> &nbsp;·&nbsp; <a href="mailto:hello@kinetra.fit">Contact</a></span></div>
+    </footer>
+    <div class="modal-backdrop" id="modal-backdrop" hidden>
+      <section class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <button class="modal-close" type="button" aria-label="Close dialog">×</button>
+        <h2 id="modal-title"></h2>
+        <p class="modal-description" id="modal-description"></p>
+        <form id="modal-form">
+          <label class="form-field" id="name-field" hidden>Your name<input name="name" /></label>
+          <label class="form-field" id="image-field" hidden>Profile image URL<input name="image" type="url" /></label>
+          <label class="form-field" id="email-field">Email address<input name="email" type="email" required /></label>
+          <label class="form-field" id="password-field" hidden>Password<input name="password" type="password" minlength="6" /></label>
+          <label class="form-field" id="message-field" hidden>Message<input name="message" /></label>
+          <button class="button button-lime" type="submit">Continue</button>
+          <button class="button button-google" id="google-sign-in" type="button" hidden>Continue with Google</button>
+        </form>
+      </section>
+    </div>
+    <div class="toast" id="toast" role="status"></div>
+  </body>
+</html>

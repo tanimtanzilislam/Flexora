@@ -122,6 +122,9 @@ h1 span, h2 span { color: #91ad68; font-family: Georgia, serif; font-style: ital
 .book-link:hover { color: #78964c; }
 .empty-state { padding: 40px 0; color: var(--muted); text-align: center; font-size: 13px; }
 .content-state { padding: 34px 0; color: var(--muted); font-size: 12px; text-align: center; }
+.content-state.is-loading::before, #payment-state.is-loading::before { content: ""; display: inline-block; width: 14px; height: 14px; margin-right: 10px; border: 2px solid #dfe3d9; border-top-color: var(--green); border-radius: 50%; vertical-align: -3px; animation: loading-spin .8s linear infinite; }
+@keyframes loading-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .content-state.is-loading::before, #payment-state.is-loading::before { animation: none; } }
 .mobile-link { display: none; }
 
 .trainer-banner { min-height: 438px; background: #e9eee1; display: grid; grid-template-columns: 1fr 1fr; }
@@ -306,6 +309,10 @@ h1 span, h2 span { color: #91ad68; font-family: Georgia, serif; font-style: ital
 .dashboard-dialog h2 { margin: 0 0 20px; font: 700 25px var(--font-display); letter-spacing: -.7px; }
 .dashboard-dialog-close { display: flex; justify-content: flex-end; margin: -13px -13px 10px; }
 .dashboard-dialog-close button { width: 35px; height: 35px; border: 0; background: transparent; font-size: 24px; cursor: pointer; }
+.dashboard-review-details { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 0 0 20px; }
+.dashboard-review-details div { padding: 12px; background: #f1f3ec; }
+.dashboard-review-details dt { color: var(--muted); font-size: 9px; font-weight: 700; text-transform: uppercase; }
+.dashboard-review-details dd { margin: 5px 0 0; font-size: 12px; overflow-wrap: anywhere; }
 .favorites-grid { margin-top: 30px; }
 .favorite-remove-link { color: #72796e; }
 .payment-dashboard-link[hidden] { display: none; }
@@ -417,4 +424,52 @@ h1 span, h2 span { color: #91ad68; font-family: Georgia, serif; font-style: ital
   .footer-note p { font-size: 18px; }
   .footer-bottom { flex-wrap: wrap; line-height: 1.7; }.footer-bottom span:nth-child(2) { display: none; }
   .modal { padding: 32px 24px 23px; }.modal h2 { font-size: 38px; }
+  .how-grid, .studio-grid { grid-template-columns: 1fr; }
+  .error-page { padding: 70px 22px; }
 }
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --ink: #eef2ea;
+  --muted: #9aa394;
+  --paper: #141814;
+  --white: #1c221c;
+  --line: #2c332c;
+  --lime: #c8e85a;
+  --green: #9ec27a;
+}
+html[data-theme="dark"] body, html[data-theme="dark"] .site-header, html[data-theme="dark"] .main-nav { background: var(--paper); }
+html[data-theme="dark"] .class-card, html[data-theme="dark"] .dashboard-stat-card, html[data-theme="dark"] .dashboard-profile-card, html[data-theme="dark"] .dashboard-table-wrap, html[data-theme="dark"] .payment-card, html[data-theme="dark"] .community-card, html[data-theme="dark"] .modal, html[data-theme="dark"] .dashboard-form, html[data-theme="dark"] .how-card, html[data-theme="dark"] .studio-card { background: #1b221b; border-color: var(--line); }
+html[data-theme="dark"] .trust-strip, html[data-theme="dark"] .dashboard-sidebar, html[data-theme="dark"] .payment-class-summary, html[data-theme="dark"] .dashboard-empty-state, html[data-theme="dark"] .dashboard-application-card { background: #1a201a; }
+html[data-theme="dark"] .button-dark { background: #eef2ea; color: #141814; }
+html[data-theme="dark"] .floating-card { background: #1b221b; }
+
+.how-grid, .studio-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin-top: 36px; }
+.how-card, .studio-card { min-height: 180px; padding: 22px; border: 1px solid var(--line); background: white; }
+.how-card span { color: #91ad68; font: 700 13px var(--font-display); }
+.how-card h3, .studio-card h3 { margin: 10px 0 8px; font: 700 22px var(--font-display); letter-spacing: -.6px; }
+.how-card p, .studio-card p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.7; }
+.studio-card { padding: 0; overflow: hidden; }
+.studio-card img { width: 100%; height: 180px; object-fit: cover; }
+.studio-card div { padding: 18px; }
+.pagination { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 28px; }
+.pagination button { min-width: 38px; min-height: 38px; border: 1px solid var(--line); background: white; cursor: pointer; }
+.pagination button.active, .pagination button[aria-current="page"] { background: var(--ink); color: white; }
+.header-profile { display: flex; align-items: center; gap: 10px; }
+.header-profile img, .header-profile-initial { width: 34px; height: 34px; border-radius: 50%; object-fit: cover; }
+.header-profile-initial { display: grid; place-items: center; background: #e5e8df; font-size: 12px; font-weight: 700; }
+.theme-toggle, .notice-toggle { min-width: 38px; min-height: 38px; border: 0; background: transparent; cursor: pointer; }
+.footer-social { display: flex; gap: 12px; align-items: center; }
+.footer-social a { display: inline-flex; align-items: center; gap: 6px; }
+.x-logo { width: 14px; height: 14px; }
+.error-page { min-height: 70vh; display: grid; place-items: center; text-align: center; padding: 80px 7%; }
+.error-illustration { width: min(420px, 100%); margin: 0 auto 20px; }
+.chart-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin: 18px 0 28px; }
+.chart-card { padding: 18px; border: 1px solid var(--line); background: white; }
+.chart-bars { display: flex; align-items: end; gap: 6px; height: 120px; }
+.chart-bars span { flex: 1; background: #d4f274; min-height: 4px; }
+.notice-list { position: absolute; right: 7%; top: 78px; width: min(320px, calc(100% - 32px)); background: white; border: 1px solid var(--line); box-shadow: 0 16px 40px #0002; z-index: 8; }
+.notice-list[hidden] { display: none; }
+.notice-list button, .notice-list p { display: block; width: 100%; padding: 12px 14px; border: 0; border-bottom: 1px solid var(--line); background: transparent; text-align: left; font-size: 11px; }
+.auth-page { min-height: 60vh; padding-top: 70px; }
+.button-google { width: 100%; margin-top: 10px; background: #f3f4ef; color: var(--ink); }

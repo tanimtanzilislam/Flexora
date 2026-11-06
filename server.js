@@ -7,11 +7,16 @@ const { createReadStream } = require("node:fs");
 const { stat } = require("node:fs/promises");
 const { MongoClient, ObjectId } = require("mongodb");
 const Stripe = require("stripe");
+const { handleAdminRoutes } = require("./admin-api");
+const { ensureAdminAccount, ensureSampleContent } = require("./seed");
+const { userFromJwt, issueJwtCookie, clearJwtCookie } = require("./auth-token");
 
 const PORT = Number(process.env.PORT || 3000);
 const MONGODB_URI = process.env.MONGODB_URI;
 const APP_BASE_URL = process.env.APP_BASE_URL || `http://localhost:${PORT}`;
+const FRONTEND_URL = process.env.FRONTEND_URL || APP_BASE_URL;
 const BETTER_AUTH_SECRET = process.env.BETTER_AUTH_SECRET;
+const JWT_SECRET = process.env.JWT_SECRET || BETTER_AUTH_SECRET;
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
 const IMGBB_API_KEY = process.env.IMGBB_API_KEY;
@@ -19,7 +24,7 @@ const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const PUBLIC_DIR = __dirname;
 const MAX_BODY_SIZE = 10 * 1024;
-const PUBLIC_FILES = new Set(["/", "/classes", "/community", "/index.html", "/classes.html", "/community.html", "/forum-post.html", "/styles.css", "/app.bundle.js"]);
+const PUBLIC_FILES = new Set(["/", "/classes", "/community", "/login", "/register", "/index.html", "/classes.html", "/community.html", "/forum-post.html", "/login.html", "/register.html", "/404.html", "/styles.css", "/app.bundle.js"]);
 const PRIVATE_FILES = new Set(["/class-details.html", "/payment.html", "/dashboard.html"]);
 const MIME_TYPES = {
   ".css": "text/css; charset=utf-8",
@@ -47,16 +52,101 @@ function sendJson(response, statusCode, body, headers = {}) {
   response.end(JSON.stringify(body));
 }
 
-async function currentUser(request, database) {
+function allowedOrigins() {
+  return [...new Set([APP_BASE_URL, FRONTEND_URL].filter(Boolean))];
+}
+
+function applyCors(request, response) {
+  const origin = request.headers.origin;
+  if (origin && allowedOrigins().includes(origin)) {
+    response.setHeader("Access-Control-Allow-Origin", origin);
+    response.setHeader("Access-Control-Allow-Credentials", "true");
+    response.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    response.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
+    response.setHeader("Vary", "Origin");
+  }
+}
+
+function mapAccount(account) {
+  return {
+    id: account.id || account._id?.toString(),
+    name: account.name,
+    email: account.email,
+    image: account.image || "",
+    role: account.role || "member",
+    isBlocked: Boolean(account.isBlocked)
+  };
+}
+
+async function currentUser(request, response, database) {
+  const fromJwt = await userFromJwt(request, database, JWT_SECRET);
+  if (fromJwt) return fromJwt;
   const session = await auth.api.getSession({ headers: fromNodeHeaders(request.headers) });
   if (!session) return null;
+  const user = mapAccount(session.user);
+  if (response && !response.headersSent) {
+    issueJwtCookie(response, user, JWT_SECRET, APP_BASE_URL);
+  }
+  return user;
+}
+
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function classNameStage() {
+  return { $addFields: { name: { $ifNull: ["$name", { $ifNull: ["$className", "$title"] }] } } };
+}
+
+function bookingCountStage() {
   return {
-    id: session.user.id,
-    name: session.user.name,
-    email: session.user.email,
-    image: session.user.image || "",
-    role: session.user.role || "member"
+    $lookup: {
+      from: "bookings",
+      let: { classId: "$_id", className: "$name" },
+      pipeline: [
+        {
+          $match: {
+            $expr: {
+              $and: [
+                { $not: { $in: ["$status", ["cancelled", "rejected"]] } },
+                { $or: [{ $eq: ["$classId", "$$classId"] }, { $eq: ["$className", "$$className"] }] }
+              ]
+            }
+          }
+        },
+        { $count: "count" }
+      ],
+      as: "bookingStats"
+    }
   };
+}
+
+function classDisplayStage() {
+  return {
+    $addFields: {
+      bookingCount: { $ifNull: [{ $arrayElemAt: ["$bookingStats.count", 0] }, 0] },
+      trainerName: { $ifNull: ["$trainerName", { $ifNull: ["$trainer.name", "Kinetra trainer"] }] },
+      category: { $ifNull: ["$category", "Fitness"] },
+      description: { $ifNull: ["$description", ""] },
+      imageUrl: { $ifNull: ["$imageUrl", { $ifNull: ["$image", ""] }] }
+    }
+  };
+}
+
+function classPublicProject() {
+  return {
+    $project: {
+      name: 1, trainerName: 1, category: 1, price: 1, duration: 1, description: 1,
+      imageUrl: 1, bookingCount: 1, priceInMinorUnits: 1, currency: 1, schedule: 1
+    }
+  };
+}
+
+function paginationFrom(request) {
+  const params = new URL(request.url, APP_BASE_URL).searchParams;
+  const page = Math.max(1, Number.parseInt(params.get("page") || "1", 10) || 1);
+  const limit = Math.min(12, Math.max(1, Number.parseInt(params.get("limit") || "6", 10) || 6));
+  return { page, limit, skip: (page - 1) * limit, params };
 }
 
 function ensureSameOrigin(request) {
@@ -256,10 +346,10 @@ function validEmail(value) {
   return email;
 }
 
-async function serveStatic(request, response, pathname, privatePage = false) {
+async function serveStatic(request, response, pathname, privatePage = false, statusCode = 200) {
   const forumPostPage = /^\/community\/[a-f\d]{24}$/i.test(pathname);
-  if (!PUBLIC_FILES.has(pathname) && !forumPostPage && !(privatePage && PRIVATE_FILES.has(pathname))) {
-    sendJson(response, 404, { error: "Not found." });
+  if (!PUBLIC_FILES.has(pathname) && !forumPostPage && !(privatePage && PRIVATE_FILES.has(pathname)) && pathname !== "/404.html") {
+    await serveStatic(request, response, "/404.html", false, 404);
     return;
   }
   const requestedPath = pathname === "/"
@@ -268,6 +358,10 @@ async function serveStatic(request, response, pathname, privatePage = false) {
       ? "/classes.html"
       : pathname === "/community"
         ? "/community.html"
+      : pathname === "/login"
+        ? "/login.html"
+      : pathname === "/register"
+        ? "/register.html"
       : pathname === "/payment"
         ? "/payment.html"
         : pathname === "/dashboard"
@@ -287,7 +381,7 @@ async function serveStatic(request, response, pathname, privatePage = false) {
       sendJson(response, 404, { error: "Not found." });
       return;
     }
-    response.writeHead(200, {
+    response.writeHead(statusCode, {
       "Content-Type": MIME_TYPES[path.extname(filePath)] || "application/octet-stream",
       "X-Content-Type-Options": "nosniff"
     });
@@ -313,7 +407,7 @@ async function handleApi(request, response, pathname, database) {
   const comments = database.collection("forumComments");
 
   const requireRole = async roles => {
-    const user = await currentUser(request, database);
+    const user = await currentUser(request, response, database);
     if (!user) {
       sendJson(response, 401, { error: "Please log in to access your dashboard." });
       return null;
@@ -322,11 +416,68 @@ async function handleApi(request, response, pathname, database) {
       sendJson(response, 403, { error: "You do not have permission to perform this action." });
       return null;
     }
+    if (user.isBlocked) {
+      sendJson(response, 403, { error: "Action restricted by Admin." });
+      return null;
+    }
     if (!ObjectId.isValid(user.id)) {
       throw Object.assign(new Error("Your account ID is invalid."), { statusCode: 500 });
     }
     return { ...user, objectId: new ObjectId(user.id) };
   };
+
+  if (await handleAdminRoutes(request, response, pathname, database, {
+    requireRole, serializeClass, serializeForumPost, requiredText, readJson, sendJson, safeHttpImageUrl
+  })) {
+    return;
+  }
+
+  if (request.method === "GET" && pathname === "/api/me") {
+    const user = await currentUser(request, response, database);
+    sendJson(response, 200, { user });
+    return;
+  }
+
+  if (request.method === "GET" && pathname === "/api/notifications") {
+    const user = await requireRole(["member", "trainer", "admin"]);
+    if (!user) return;
+    const items = await database.collection("notifications").find({ memberId: user.objectId }).sort({ createdAt: -1 }).limit(20).toArray();
+    sendJson(response, 200, {
+      notifications: items.map(item => ({
+        id: item._id.toString(),
+        message: item.message,
+        type: item.type,
+        read: Boolean(item.read),
+        createdAt: item.createdAt
+      }))
+    });
+    return;
+  }
+
+  const notificationRead = pathname.match(/^\/api\/notifications\/([a-f\d]{24})\/read$/i);
+  if (request.method === "PATCH" && notificationRead) {
+    const user = await requireRole(["member", "trainer", "admin"]);
+    if (!user) return;
+    await database.collection("notifications").updateOne(
+      { _id: new ObjectId(notificationRead[1]), memberId: user.objectId },
+      { $set: { read: true } }
+    );
+    sendJson(response, 200, { message: "Notification marked as read." });
+    return;
+  }
+
+  if (["POST", "PATCH", "DELETE"].includes(request.method) && !pathname.startsWith("/api/admin/")) {
+    const user = await currentUser(request, response, database);
+    if (user) {
+      const account = ObjectId.isValid(user.id)
+        ? await database.collection("user").findOne({ _id: new ObjectId(user.id) }, { projection: { isBlocked: 1 } })
+        : null;
+      if (account?.isBlocked) {
+        sendJson(response, 403, { error: "Action restricted by Admin." });
+        return;
+      }
+    }
+  }
 
   if (request.method === "GET" && pathname === "/api/dashboard") {
     const user = await requireRole(["member", "trainer", "admin"]);
@@ -550,8 +701,8 @@ async function handleApi(request, response, pathname, database) {
     }
   }
 
-  if (request.method === "POST" && pathname === "/api/trainer/upload") {
-    const user = await requireRole(["trainer"]);
+  if (request.method === "POST" && (pathname === "/api/trainer/upload" || pathname === "/api/uploads")) {
+    const user = await requireRole(["trainer", "admin"]);
     if (!user) return;
     if (!IMGBB_API_KEY) {
       sendJson(response, 503, { error: "Image uploads are not configured. Set IMGBB_API_KEY on the server." });
@@ -627,7 +778,7 @@ async function handleApi(request, response, pathname, database) {
 
   const classDetailsMatch = pathname.match(/^\/api\/classes\/([a-f\d]{24})$/i);
   if (request.method === "GET" && classDetailsMatch) {
-    const user = await currentUser(request, database);
+    const user = await currentUser(request, response, database);
     if (!user) {
       sendJson(response, 401, { error: "Please log in to view class details." });
       return;
@@ -660,7 +811,7 @@ async function handleApi(request, response, pathname, database) {
   }
 
   if (request.method === "GET" && pathname === "/api/bookings/check") {
-    const user = await currentUser(request, database);
+    const user = await currentUser(request, response, database);
     if (!user) {
       sendJson(response, 401, { error: "Please log in to book a class." });
       return;
@@ -685,7 +836,7 @@ async function handleApi(request, response, pathname, database) {
   }
 
   if (request.method === "GET" && pathname === "/api/favorites") {
-    const user = await currentUser(request, database);
+    const user = await currentUser(request, response, database);
     if (!user) {
       sendJson(response, 401, { error: "Please log in to view your favorite classes." });
       return;
@@ -703,7 +854,7 @@ async function handleApi(request, response, pathname, database) {
   }
 
   if (request.method === "POST" && pathname === "/api/favorites") {
-    const user = await currentUser(request, database);
+    const user = await currentUser(request, response, database);
     if (!user) {
       sendJson(response, 401, { error: "Please log in to save favorite classes." });
       return;
@@ -736,7 +887,7 @@ async function handleApi(request, response, pathname, database) {
   }
 
   if (request.method === "DELETE" && pathname === "/api/favorites") {
-    const user = await currentUser(request, database);
+    const user = await currentUser(request, response, database);
     if (!user) {
       sendJson(response, 401, { error: "Please log in to manage your favorite classes." });
       return;
@@ -753,7 +904,7 @@ async function handleApi(request, response, pathname, database) {
 
   const forumPostVoteMatch = pathname.match(/^\/api\/community\/([a-f\d]{24})\/votes$/i);
   if (forumPostVoteMatch && ["POST", "DELETE"].includes(request.method)) {
-    const user = await currentUser(request, database);
+    const user = await currentUser(request, response, database);
     if (!user) {
       sendJson(response, 401, { error: "Please log in to vote on community posts." });
       return;
@@ -806,7 +957,7 @@ async function handleApi(request, response, pathname, database) {
 
   const forumCommentMatch = pathname.match(/^\/api\/community\/([a-f\d]{24})\/comments(?:\/([a-f\d]{24}))?$/i);
   if (forumCommentMatch && ["POST", "PATCH", "DELETE"].includes(request.method)) {
-    const user = await currentUser(request, database);
+    const user = await currentUser(request, response, database);
     if (!user) {
       sendJson(response, 401, { error: "Please log in to participate in the discussion." });
       return;
@@ -892,7 +1043,7 @@ async function handleApi(request, response, pathname, database) {
 
   const forumPostMatch = pathname.match(/^\/api\/community\/([a-f\d]{24})$/i);
   if (request.method === "GET" && forumPostMatch) {
-    const user = await currentUser(request, database);
+    const user = await currentUser(request, response, database);
     if (!user) {
       sendJson(response, 401, { error: "Please log in to view this community post." });
       return;
@@ -925,60 +1076,63 @@ async function handleApi(request, response, pathname, database) {
   }
 
   if (request.method === "GET" && pathname === "/api/community") {
-    const posts = await database.collection("forumPosts").find(publishedForumFilter(), {
-      projection: { title: 1, content: 1, body: 1, description: 1, authorName: 1, authorRole: 1, authorType: 1, createdByRole: 1, role: 1, "author.name": 1, "author.role": 1, category: 1, imageUrl: 1, image: 1, coverImage: 1, createdAt: 1 }
-    }).sort({ createdAt: -1 }).limit(50).toArray();
-    sendJson(response, 200, { posts: posts.map(serializeForumPost) });
+    const { page, limit, skip } = paginationFrom(request);
+    const filter = publishedForumFilter();
+    const [posts, total] = await Promise.all([
+      database.collection("forumPosts").find(filter, {
+        projection: { title: 1, content: 1, body: 1, description: 1, authorName: 1, authorRole: 1, authorType: 1, createdByRole: 1, role: 1, "author.name": 1, "author.role": 1, category: 1, imageUrl: 1, image: 1, coverImage: 1, createdAt: 1 }
+      }).sort({ createdAt: -1 }).skip(skip).limit(limit).toArray(),
+      database.collection("forumPosts").countDocuments(filter)
+    ]);
+    sendJson(response, 200, {
+      posts: posts.map(serializeForumPost),
+      page,
+      limit,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / limit))
+    });
+    return;
+  }
+
+  if (request.method === "GET" && pathname === "/api/classes/categories") {
+    const categories = await database.collection("classes").distinct("category", { status: { $regex: "^approved$", $options: "i" } });
+    sendJson(response, 200, { categories: categories.filter(Boolean).sort((left, right) => String(left).localeCompare(String(right))) });
     return;
   }
 
   if (request.method === "GET" && pathname === "/api/classes") {
-    const classes = await database.collection("classes").aggregate([
-      { $match: { status: { $regex: "^approved$", $options: "i" } } },
-      {
-        $addFields: {
-          name: { $ifNull: ["$name", { $ifNull: ["$className", "$title"] }] }
-        }
-      },
-      { $match: { name: { $type: "string", $ne: "" } } },
-      {
-        $lookup: {
-          from: "bookings",
-          localField: "name",
-          foreignField: "className",
-          pipeline: [
-            { $match: { status: { $nin: ["cancelled", "rejected"] } } },
-            { $count: "count" }
-          ],
-          as: "bookingStats"
-        }
-      },
-      {
-        $addFields: {
-          bookingCount: { $ifNull: [{ $arrayElemAt: ["$bookingStats.count", 0] }, 0] },
-          trainerName: { $ifNull: ["$trainerName", { $ifNull: ["$trainer.name", "Kinetra trainer"] }] },
-          category: { $ifNull: ["$category", "Fitness"] },
-          description: { $ifNull: ["$description", ""] },
-          imageUrl: { $ifNull: ["$imageUrl", { $ifNull: ["$image", ""] }] }
-        }
-      },
+    const { page, limit, skip, params } = paginationFrom(request);
+    const search = (params.get("search") || "").trim();
+    const category = (params.get("category") || "").trim();
+    const match = [{ $match: { status: { $regex: "^approved$", $options: "i" } } }, classNameStage(), { $match: { name: { $type: "string", $ne: "" } } }];
+    if (search) {
+      match.push({ $match: { name: { $regex: escapeRegex(search), $options: "i" } } });
+    }
+    if (category && category !== "all") {
+      const categories = category.split(",").map(item => item.trim()).filter(Boolean);
+      if (categories.length) match.push({ $match: { category: { $in: categories } } });
+    }
+    const pipeline = [
+      ...match,
+      bookingCountStage(),
+      classDisplayStage(),
       { $sort: { name: 1 } },
       {
-        $project: {
-          name: 1,
-          trainerName: 1,
-          category: 1,
-          price: 1,
-          duration: 1,
-          description: 1,
-          imageUrl: 1,
-          bookingCount: 1
+        $facet: {
+          items: [{ $skip: skip }, { $limit: limit }, classPublicProject()],
+          meta: [{ $count: "total" }]
         }
       }
-    ]).toArray();
-
+    ];
+    const [result] = await database.collection("classes").aggregate(pipeline).toArray();
+    const classes = result?.items || [];
+    const total = result?.meta?.[0]?.total || 0;
     sendJson(response, 200, {
-      classes: classes.map(({ _id, ...item }) => ({ ...item, id: _id.toString() }))
+      classes: classes.map(({ _id, ...item }) => ({ ...item, id: _id.toString() })),
+      page,
+      limit,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / limit))
     });
     return;
   }
@@ -987,47 +1141,13 @@ async function handleApi(request, response, pathname, database) {
     const [featuredClasses, posts] = await Promise.all([
       database.collection("classes").aggregate([
         { $match: { status: { $regex: "^approved$", $options: "i" } } },
-        {
-          $addFields: {
-            name: { $ifNull: ["$name", { $ifNull: ["$className", "$title"] }] }
-          }
-        },
+        classNameStage(),
         { $match: { name: { $type: "string", $ne: "" } } },
-        {
-          $lookup: {
-            from: "bookings",
-            localField: "name",
-            foreignField: "className",
-            pipeline: [
-              { $match: { status: { $nin: ["cancelled", "rejected"] } } },
-              { $count: "count" }
-            ],
-            as: "bookingStats"
-          }
-        },
-        {
-          $addFields: {
-            bookingCount: { $ifNull: [{ $arrayElemAt: ["$bookingStats.count", 0] }, 0] },
-            trainerName: { $ifNull: ["$trainerName", { $ifNull: ["$trainer.name", "Kinetra trainer"] }] },
-            category: { $ifNull: ["$category", "Fitness"] },
-            description: { $ifNull: ["$description", ""] },
-            imageUrl: { $ifNull: ["$imageUrl", { $ifNull: ["$image", ""] }] }
-          }
-        },
+        bookingCountStage(),
+        classDisplayStage(),
         { $sort: { bookingCount: -1, createdAt: -1 } },
         { $limit: 3 },
-        {
-          $project: {
-            name: 1,
-            trainerName: 1,
-            category: 1,
-            price: 1,
-            duration: 1,
-            description: 1,
-            imageUrl: 1,
-            bookingCount: 1
-          }
-        }
+        classPublicProject()
       ]).toArray(),
       database.collection("forumPosts").find(publishedForumFilter(), {
         projection: { title: 1, content: 1, body: 1, description: 1, authorName: 1, authorRole: 1, authorType: 1, createdByRole: 1, role: 1, "author.name": 1, "author.role": 1, category: 1, imageUrl: 1, image: 1, coverImage: 1, createdAt: 1 }
@@ -1035,7 +1155,10 @@ async function handleApi(request, response, pathname, database) {
     ]);
     const latestPosts = posts.map(serializeForumPost);
 
-    sendJson(response, 200, { featuredClasses, latestPosts });
+    sendJson(response, 200, {
+      featuredClasses: featuredClasses.map(({ _id, ...item }) => ({ ...item, id: _id.toString() })),
+      latestPosts
+    });
     return;
   }
 
@@ -1046,7 +1169,7 @@ async function handleApi(request, response, pathname, database) {
   }
 
   if (request.method === "GET" && pathname === "/api/checkout/verify") {
-    const user = await currentUser(request, database);
+    const user = await currentUser(request, response, database);
     if (!user) {
       sendJson(response, 401, { error: "Please log in to verify this payment." });
       return;
@@ -1087,7 +1210,16 @@ async function handleApi(request, response, pathname, database) {
     if (checkout.payment_status === "paid") {
       await bookings.updateOne(
         { _id: booking._id },
-        { $set: { status: "paid", paidAt: new Date(), stripePaymentIntentId: checkout.payment_intent || null } }
+        {
+          $set: {
+            status: "paid",
+            paidAt: new Date(),
+            stripePaymentIntentId: checkout.payment_intent || null,
+            amount: checkout.amount_total || 0,
+            currency: checkout.currency || "usd",
+            userEmail: checkout.customer_email || user.email
+          }
+        }
       );
     }
     sendJson(response, 200, { paid: checkout.payment_status === "paid" });
@@ -1096,7 +1228,7 @@ async function handleApi(request, response, pathname, database) {
 
   if (request.method === "POST" && pathname === "/api/checkout/session") {
     ensureSameOrigin(request);
-    const user = await currentUser(request, database);
+    const user = await currentUser(request, response, database);
     if (!user) {
       sendJson(response, 401, { error: "Please log in to book this class." });
       return;
@@ -1302,6 +1434,9 @@ async function handleStripeWebhook(request, response, database) {
             stripeSessionId: checkout.id,
             stripePaymentIntentId: checkout.payment_intent || null,
             paidAt: checkout.payment_status === "paid" ? new Date() : null,
+            amount: checkout.amount_total || 0,
+            currency: checkout.currency || "usd",
+            userEmail: checkout.customer_email || "",
             updatedAt: new Date()
           }
         }
@@ -1363,7 +1498,8 @@ async function main() {
       : {},
     user: {
       additionalFields: {
-        role: { type: "string", required: false, defaultValue: "member", input: false }
+        role: { type: "string", required: false, defaultValue: "member", input: false },
+        isBlocked: { type: "boolean", required: false, defaultValue: false, input: false }
       }
     },
     advanced: {
@@ -1384,33 +1520,50 @@ async function main() {
   authNodeHandler = toNodeHandler(auth);
   await Promise.all([
     database.collection("bookings").createIndex({ className: 1, status: 1 }),
+    database.collection("bookings").createIndex({ classId: 1, status: 1 }),
+    database.collection("classes").createIndex({ status: 1, name: 1 }),
+    database.collection("classes").createIndex({ category: 1, status: 1 }),
     database.collection("forumPosts").createIndex({ createdAt: -1 }),
     database.collection("favorites").createIndex({ memberId: 1, classId: 1 }, { unique: true }),
     database.collection("forumVotes").createIndex({ postId: 1, memberId: 1 }, { unique: true }),
     database.collection("forumVotes").createIndex({ postId: 1, vote: 1 }),
     database.collection("forumComments").createIndex({ postId: 1, createdAt: 1 }),
     database.collection("forumComments").createIndex({ postId: 1, parentCommentId: 1 }),
+    database.collection("notifications").createIndex({ memberId: 1, createdAt: -1 }),
+    database.collection("trainerApplications").createIndex({ status: 1, createdAt: -1 }),
+    database.collection("user").createIndex({ email: 1 }),
     database.collection("bookings").createIndex(
       { memberId: 1, classId: 1 },
       { unique: true, partialFilterExpression: { memberId: { $type: "objectId" }, classId: { $type: "objectId" } } }
     )
   ]);
+  await ensureAdminAccount(auth, database);
+  await ensureSampleContent(database);
 
   const server = http.createServer(async (request, response) => {
     try {
+      applyCors(request, response);
+      if (request.method === "OPTIONS") {
+        response.writeHead(204);
+        response.end();
+        return;
+      }
       const url = new URL(request.url, `http://${request.headers.host || "localhost"}`);
       const privateClassRoute = request.method === "GET" && url.pathname.match(/^\/classes\/([a-f\d]{24})$/i);
       const privatePaymentRoute = request.method === "GET" && url.pathname === "/payment";
       const privateDashboardRoute = request.method === "GET" && url.pathname === "/dashboard";
       const privateForumPostRoute = ["GET", "HEAD"].includes(request.method) && url.pathname.match(/^\/community\/([a-f\d]{24})$/i);
-      if (url.pathname === "/api/auth/config") {
+      if (url.pathname === "/api/auth/sign-out") {
+        clearJwtCookie(response, APP_BASE_URL);
+        await authNodeHandler(request, response);
+      } else if (url.pathname === "/api/auth/config") {
         await handleApi(request, response, url.pathname, database);
       } else if (url.pathname.startsWith("/api/auth/")) {
         await authNodeHandler(request, response);
       } else if (request.method === "POST" && url.pathname === "/api/stripe/webhook") {
         await handleStripeWebhook(request, response, database);
       } else if (privateClassRoute || privatePaymentRoute || privateDashboardRoute || privateForumPostRoute) {
-        const user = await currentUser(request, database);
+        const user = await currentUser(request, response, database);
         if (!user) {
           const returnTo = `${url.pathname}${url.search}`;
           response.writeHead(302, {

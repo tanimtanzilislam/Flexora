@@ -24,9 +24,15 @@ const dashboardView = document.querySelector("#dashboard-view");
 const dashboardDialog = document.querySelector("#dashboard-dialog");
 const dashboardDialogContent = document.querySelector("#dashboard-dialog-content");
 let activeFilter = "all";
+let activeClassCategory = "all";
+let classesPage = Number.parseInt(new URLSearchParams(window.location.search).get("page") || "1", 10) || 1;
+let classesSearchTimer;
+let communityPage = Number.parseInt(new URLSearchParams(window.location.search).get("page") || "1", 10) || 1;
 let currentPrivateClass = null;
 let currentClassFavorited = false;
 let currentForumPostId = null;
+const classesPagination = document.querySelector("#classes-pagination");
+const communityPagination = document.querySelector("#community-pagination");
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, character => ({
@@ -104,7 +110,6 @@ async function readJsonResponse(response) {
 }
 
 function renderClasses(classes) {
-  if (document.body.dataset.page === "classes") renderCategoryFilters(classes);
   classList.innerHTML = classes.map(item => {
     const category = String(item.category || "Fitness");
     const imageUrl = safeImageUrl(item.imageUrl);
@@ -143,16 +148,25 @@ function renderClasses(classes) {
     </article>`;
   }).join("");
   classesState.hidden = true;
-  filterClasses();
+  if (document.body.dataset.page !== "classes") filterClasses();
   observeMotion(classList.querySelectorAll(".motion-reveal"));
 }
 
-function renderCategoryFilters(classes) {
-  const categories = [...new Set(classes.map(item => String(item.category || "Fitness").trim()).filter(Boolean))]
-    .sort((left, right) => left.localeCompare(right));
-  filterContainer.innerHTML = `<button class="filter-button selected" type="button" data-filter="all" aria-pressed="true">All classes</button>
-    ${categories.map(category => `<button class="filter-button" type="button" data-filter="${escapeHtml(categorySlug(category))}" aria-pressed="false">${escapeHtml(category)}</button>`).join("")}`;
-  bindFilterButtons();
+function renderCategoryFilters(categories) {
+  filterContainer.innerHTML = `<button class="filter-button${activeClassCategory === "all" ? " selected" : ""}" type="button" data-category="all" aria-pressed="${activeClassCategory === "all"}">All classes</button>
+    ${categories.map(category => `<button class="filter-button${activeClassCategory === category ? " selected" : ""}" type="button" data-category="${escapeHtml(category)}" aria-pressed="${activeClassCategory === category}">${escapeHtml(category)}</button>`).join("")}`;
+  filterContainer.onclick = event => {
+    const button = event.target.closest("[data-category]");
+    if (!button) return;
+    activeClassCategory = button.dataset.category;
+    classesPage = 1;
+    for (const filterButton of filterContainer.querySelectorAll("[data-category]")) {
+      const selected = filterButton === button;
+      filterButton.classList.toggle("selected", selected);
+      filterButton.setAttribute("aria-pressed", String(selected));
+    }
+    loadClassesPage();
+  };
 }
 
 function renderForumPostCards(posts, container) {
@@ -189,14 +203,79 @@ function renderLatestPosts(posts) {
 
 async function loadCommunityPage() {
   try {
-    const response = await fetch("/api/community");
+    const response = await fetch(`/api/community?page=${communityPage}&limit=6`);
     const result = await readJsonResponse(response);
     if (!response.ok) throw new Error(result.error || "Community posts could not be loaded.");
     renderForumPostCards(result.posts || [], communityPagePosts);
     if (result.posts?.length) communityPageState.hidden = true;
     else showContentError(communityPageState, "No community posts have been published yet.");
+    renderPagination(communityPagination, result.page, result.totalPages, page => {
+      communityPage = page;
+      const url = new URL(window.location.href);
+      url.searchParams.set("page", String(page));
+      window.history.replaceState({}, "", url);
+      loadCommunityPage();
+    });
   } catch (error) {
     showContentError(communityPageState, error.message);
+  }
+}
+
+function renderPagination(container, page, totalPages, onChange) {
+  if (!container) return;
+  if (totalPages <= 1) {
+    container.replaceChildren();
+    return;
+  }
+  const pages = new Set([1, totalPages]);
+  for (let value = Math.max(1, page - 2); value <= Math.min(totalPages, page + 2); value += 1) pages.add(value);
+  const orderedPages = [...pages].sort((left, right) => left - right);
+  const controls = [`<button type="button" data-page="${Math.max(1, page - 1)}" aria-label="Previous page"${page <= 1 ? " disabled" : ""}>Previous</button>`];
+  let previousPage = 0;
+  for (const value of orderedPages) {
+    if (previousPage && value - previousPage > 1) controls.push('<span class="pagination-ellipsis" aria-hidden="true">…</span>');
+    controls.push(`<button type="button" data-page="${value}"${value === page ? ' class="active" aria-current="page"' : ""}>${value}</button>`);
+    previousPage = value;
+  }
+  controls.push(`<button type="button" data-page="${Math.min(totalPages, page + 1)}" aria-label="Next page"${page >= totalPages ? " disabled" : ""}>Next</button>`);
+  container.innerHTML = controls.join("");
+  container.onclick = event => {
+    const button = event.target.closest("[data-page]");
+    if (!button || button.disabled) return;
+    onChange(Number(button.dataset.page));
+  };
+}
+
+async function loadClassesPage() {
+  try {
+    const params = new URLSearchParams({
+      page: String(classesPage),
+      limit: "6",
+      search: searchInput.value.trim()
+    });
+    if (activeClassCategory !== "all") params.set("category", activeClassCategory);
+    const [categoriesResponse, classesResponse] = await Promise.all([
+      fetch("/api/classes/categories"),
+      fetch(`/api/classes?${params}`)
+    ]);
+    const [categoriesResult, result] = await Promise.all([
+      readJsonResponse(categoriesResponse),
+      readJsonResponse(classesResponse)
+    ]);
+    if (!categoriesResponse.ok) throw new Error(categoriesResult.error || "Class categories could not be loaded.");
+    if (!classesResponse.ok) throw new Error(result.error || "Approved classes could not be loaded.");
+    renderCategoryFilters(categoriesResult.categories || []);
+    renderClasses(result.classes || []);
+    emptyState.hidden = Boolean(result.classes?.length);
+    renderPagination(classesPagination, result.page, result.totalPages, page => {
+      classesPage = page;
+      const url = new URL(window.location.href);
+      url.searchParams.set("page", String(page));
+      window.history.replaceState({}, "", url);
+      loadClassesPage();
+    });
+  } catch (error) {
+    showContentError(classesState, error.message);
   }
 }
 
@@ -426,7 +505,26 @@ async function loadDashboardPage() {
     document.querySelector("#dashboard-role").textContent = role === "member" ? "User" : role;
     document.querySelector("#dashboard-title").textContent = `${role[0].toUpperCase()}${role.slice(1)} dashboard`;
     renderDashboardNavigation(role);
-    renderDashboardView(role, result, new URLSearchParams(window.location.search).get("view") || "overview");
+    const view = new URLSearchParams(window.location.search).get("view") || "overview";
+    const adminEndpoints = {
+      users: ["/api/admin/users", "users"],
+      applications: ["/api/admin/trainer-applications", "applications"],
+      trainers: ["/api/admin/trainers", "trainers"],
+      "manage-classes": ["/api/admin/classes", "classes"],
+      transactions: ["/api/admin/transactions", "transactions"],
+      "manage-posts": ["/api/admin/forum-posts", "posts"]
+    };
+    let adminData = {};
+    if (role === "admin" && adminEndpoints[view]) {
+      const [endpoint, key] = adminEndpoints[view];
+      const adminResponse = await fetch(endpoint);
+      const adminResult = await readJsonResponse(adminResponse);
+      if (!adminResponse.ok) throw new Error(adminResult.error || "Admin data could not be loaded.");
+      adminData = adminResult;
+      if (!Array.isArray(adminData[key])) adminData[key] = [];
+    }
+    dashboardView.dataset.role = role;
+    renderDashboardView(role, result, view, adminData);
     dashboardView.hidden = false;
     dashboardState.hidden = true;
   } catch (error) {
@@ -437,7 +535,7 @@ async function loadDashboardPage() {
 const dashboardNavigation = {
   member: [["overview", "Overview"], ["bookings", "Booked classes"], ["apply", "Apply as trainer"], ["favorites", "Favorite classes"]],
   trainer: [["overview", "Overview"], ["add-class", "Add class"], ["classes", "My classes"], ["add-post", "Add forum post"], ["posts", "My forum posts"]],
-  admin: [["overview", "Overview"]]
+  admin: [["overview", "Overview"], ["users", "Manage users"], ["applications", "Applied trainers"], ["trainers", "Manage trainers"], ["manage-classes", "Manage classes"], ["add-post", "Add forum post"], ["transactions", "Transactions"], ["manage-posts", "Forum post manage"]]
 };
 
 function dashboardStat(label, value) {
@@ -467,7 +565,7 @@ function renderDashboardNavigation(role) {
   ).join("");
 }
 
-function renderDashboardView(role, result, view) {
+function renderDashboardView(role, result, view, adminData = {}) {
   const availableViews = dashboardNavigation[role].map(([name]) => name);
   const activeView = availableViews.includes(view) ? view : "overview";
   const user = result.user;
@@ -524,6 +622,45 @@ function renderDashboardView(role, result, view) {
         <a class="text-link" href="/community/${encodeURIComponent(post.id)}">View post</a>
         <button class="text-link comment-delete" type="button" data-delete-post="${escapeHtml(post.id)}">Delete</button></div></article>`).join("")}</div>`
       : '<p class="dashboard-empty-state">You haven’t shared any community posts yet.</p>'}`;
+  } else if (activeView === "users") {
+    content = `<h2 class="dashboard-view-title">Manage users</h2>${adminData.users?.length
+      ? `<div class="dashboard-table-wrap"><table class="dashboard-table"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody>${adminData.users.map(item =>
+        `<tr><td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.email)}</td><td>${escapeHtml(item.role)}</td><td><span class="dashboard-status">${escapeHtml(item.status)}</span></td><td class="dashboard-row-actions">
+        <button class="text-link" type="button" data-admin-action="${item.status === "blocked" ? "unblock" : "block"}" data-admin-id="${escapeHtml(item.id)}">${item.status === "blocked" ? "Unblock" : "Block"}</button>
+        ${item.role === "member" ? `<button class="text-link" type="button" data-admin-action="make-admin" data-admin-id="${escapeHtml(item.id)}">Make admin</button>` : ""}</td></tr>`
+      ).join("")}</tbody></table></div>` : '<p class="dashboard-empty-state">No users are registered yet.</p>'}`;
+  } else if (activeView === "applications") {
+    content = `<h2 class="dashboard-view-title">Applied trainers</h2>${adminData.applications?.length
+      ? `<div class="dashboard-table-wrap"><table class="dashboard-table"><thead><tr><th>Name</th><th>Email</th><th>Experience</th><th>Specialty</th><th>Applied</th><th></th></tr></thead><tbody>${adminData.applications.map(item =>
+        `<tr><td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.email)}</td><td>${escapeHtml(String(item.experienceYears))} years</td><td>${escapeHtml(item.specialty)}</td><td>${escapeHtml(item.createdAt ? new Date(item.createdAt).toLocaleDateString() : "—")}</td><td><button class="text-link" type="button" data-review-application="${escapeHtml(item.id)}">Details</button></td></tr>`
+      ).join("")}</tbody></table></div>` : '<p class="dashboard-empty-state">There are no pending trainer applications.</p>'}`;
+  } else if (activeView === "trainers") {
+    content = `<h2 class="dashboard-view-title">Manage trainers</h2>${adminData.trainers?.length
+      ? `<div class="dashboard-table-wrap"><table class="dashboard-table"><thead><tr><th>Name</th><th>Email</th><th>Status</th><th></th></tr></thead><tbody>${adminData.trainers.map(item =>
+        `<tr><td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.email)}</td><td><span class="dashboard-status">${escapeHtml(item.status)}</span></td><td><button class="text-link comment-delete" type="button" data-admin-action="demote" data-admin-id="${escapeHtml(item.id)}">Demote to user</button></td></tr>`
+      ).join("")}</tbody></table></div>` : '<p class="dashboard-empty-state">There are no active trainers.</p>'}`;
+  } else if (activeView === "manage-classes") {
+    content = `<h2 class="dashboard-view-title">Manage classes</h2>${adminData.classes?.length
+      ? `<div class="dashboard-table-wrap"><table class="dashboard-table"><thead><tr><th>Class</th><th>Trainer</th><th>Category</th><th>Status</th><th>Actions</th></tr></thead><tbody>${adminData.classes.map(item =>
+        `<tr><td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.trainerName)}</td><td>${escapeHtml(item.category)}</td><td><span class="dashboard-status">${escapeHtml(item.status)}</span></td><td class="dashboard-row-actions">
+        ${item.status.toLowerCase() !== "approved" ? `<button class="text-link" type="button" data-admin-action="approve-class" data-admin-id="${escapeHtml(item.id)}">Approve</button>` : ""}
+        ${item.status.toLowerCase() !== "rejected" ? `<button class="text-link" type="button" data-admin-action="reject-class" data-admin-id="${escapeHtml(item.id)}">Reject</button>` : ""}
+        <button class="text-link comment-delete" type="button" data-admin-action="delete-class" data-admin-id="${escapeHtml(item.id)}">Delete</button></td></tr>`
+      ).join("")}</tbody></table></div>` : '<p class="dashboard-empty-state">No classes have been submitted.</p>'}`;
+  } else if (activeView === "transactions") {
+    content = `<h2 class="dashboard-view-title">Transactions</h2>${adminData.transactions?.length
+      ? `<div class="dashboard-table-wrap"><table class="dashboard-table"><thead><tr><th>User email</th><th>Amount</th><th>Date</th><th>Transaction ID</th></tr></thead><tbody>${adminData.transactions.map(item =>
+        `<tr><td>${escapeHtml(item.userEmail)}</td><td>${escapeHtml((Number(item.amount) / 100).toFixed(2))} ${escapeHtml(String(item.currency).toUpperCase())}</td><td>${escapeHtml(item.date ? new Date(item.date).toLocaleString() : "—")}</td><td>${escapeHtml(item.transactionId)}</td></tr>`
+      ).join("")}</tbody></table></div>` : '<p class="dashboard-empty-state">No successful payments have been recorded.</p>'}`;
+  } else if (activeView === "manage-posts") {
+    content = `<h2 class="dashboard-view-title">Manage forum posts</h2>${adminData.posts?.length
+      ? `<div class="dashboard-post-grid">${adminData.posts.map(post => `<article class="dashboard-post-card">
+        ${safeImageUrl(post.imageUrl) ? `<img src="${escapeHtml(safeImageUrl(post.imageUrl))}" alt="" />` : ""}
+        <div><h3>${escapeHtml(post.title)}</h3><p>${escapeHtml(post.content.length > 180 ? `${post.content.slice(0, 177)}…` : post.content)}</p>
+        <p>${escapeHtml(post.authorName)} · ${escapeHtml(post.authorRole)}</p>
+        <a class="text-link" href="/community/${encodeURIComponent(post.id)}">View post</a>
+        <button class="text-link comment-delete" type="button" data-admin-action="delete-post" data-admin-id="${escapeHtml(post.id)}">Delete</button></div></article>`).join("")}</div>`
+      : '<p class="dashboard-empty-state">There are no forum posts to moderate.</p>'}`;
   }
   dashboardView.innerHTML = content;
   if (activeView !== view) {
@@ -608,6 +745,7 @@ async function uploadDashboardImage(input) {
     state.textContent = "Image uploaded successfully.";
   } catch (error) {
     state.textContent = error.message;
+    showToast(error.message);
     input.value = "";
   } finally {
     input.disabled = false;
@@ -647,7 +785,9 @@ async function submitDashboardForm(form) {
   const endpoint = type === "application"
     ? "/api/trainer-applications"
     : type === "forum-post"
-      ? "/api/trainer/forum-posts"
+      ? form.closest("#dashboard-view")?.dataset.role === "admin"
+        ? "/api/admin/forum-posts"
+        : "/api/trainer/forum-posts"
       : type === "class-update"
         ? `/api/trainer/classes/${encodeURIComponent(form.dataset.classId)}`
         : "/api/trainer/classes";
@@ -675,6 +815,29 @@ async function submitDashboardForm(form) {
   }
 }
 
+async function submitAdminReview(form) {
+  const applicationId = form.dataset.applicationId;
+  const action = form.dataset.action;
+  const feedback = form.elements.feedback.value.trim();
+  const button = form.querySelector("button[type='submit']");
+  button.disabled = true;
+  try {
+    const response = await fetch(`/api/admin/trainer-applications/${encodeURIComponent(applicationId)}/${action}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ feedback })
+    });
+    const result = await readJsonResponse(response);
+    if (!response.ok) throw new Error(result.error || "The application could not be reviewed.");
+    dashboardDialog.close();
+    showToast(result.message);
+    window.location.reload();
+  } catch (error) {
+    showToast(error.message);
+    button.disabled = false;
+  }
+}
+
 dashboardView?.addEventListener("change", event => {
   if (event.target.matches("[data-image-file]")) uploadDashboardImage(event.target);
 });
@@ -690,6 +853,70 @@ dashboardView?.addEventListener("submit", event => {
 });
 
 dashboardView?.addEventListener("click", async event => {
+  const reviewButton = event.target.closest("[data-review-application]");
+  if (reviewButton) {
+    reviewButton.disabled = true;
+    try {
+      const response = await fetch("/api/admin/trainer-applications");
+      const result = await readJsonResponse(response);
+      if (!response.ok) throw new Error(result.error || "Trainer applications could not be loaded.");
+      const application = result.applications.find(item => item.id === reviewButton.dataset.reviewApplication);
+      if (!application) throw new Error("This trainer application is no longer pending.");
+      dashboardDialogContent.innerHTML = `<h2>Trainer application details</h2>
+        <dl class="dashboard-review-details"><div><dt>Applicant</dt><dd>${escapeHtml(application.name)}</dd></div>
+        <div><dt>Email</dt><dd>${escapeHtml(application.email)}</dd></div>
+        <div><dt>Experience</dt><dd>${escapeHtml(String(application.experienceYears))} years</dd></div>
+        <div><dt>Specialty</dt><dd>${escapeHtml(application.specialty)}</dd></div>
+        <div><dt>Applied</dt><dd>${escapeHtml(application.createdAt ? new Date(application.createdAt).toLocaleString() : "—")}</dd></div></dl>
+        <form class="dashboard-form" data-admin-review data-application-id="${escapeHtml(application.id)}">
+        <label>Feedback<textarea name="feedback" maxlength="1000" placeholder="Share notes for the applicant">${escapeHtml(application.feedback)}</textarea></label>
+        <button class="button button-lime" type="submit" name="action" value="approve">Approve</button>
+        <button class="button button-dark" type="submit" name="action" value="reject">Reject</button></form>`;
+      dashboardDialog.showModal();
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      reviewButton.disabled = false;
+    }
+    return;
+  }
+
+  const adminActionButton = event.target.closest("[data-admin-action]");
+  if (adminActionButton) {
+    const action = adminActionButton.dataset.adminAction;
+    const id = encodeURIComponent(adminActionButton.dataset.adminId);
+    const routes = {
+      block: [`/api/admin/users/${id}/block`, "PATCH"],
+      unblock: [`/api/admin/users/${id}/unblock`, "PATCH"],
+      "make-admin": [`/api/admin/users/${id}/make-admin`, "PATCH"],
+      demote: [`/api/admin/trainers/${id}/demote`, "PATCH"],
+      "approve-class": [`/api/admin/classes/${id}/approve`, "PATCH"],
+      "reject-class": [`/api/admin/classes/${id}/reject`, "PATCH"],
+      "delete-class": [`/api/admin/classes/${id}`, "DELETE"],
+      "delete-post": [`/api/admin/forum-posts/${id}`, "DELETE"]
+    };
+    const route = routes[action];
+    if (!route) return;
+    const confirmation = {
+      demote: "Remove this trainer's privileges?",
+      "delete-class": "Permanently delete this class?",
+      "delete-post": "Permanently delete this forum post?"
+    }[action];
+    if (confirmation && !window.confirm(confirmation)) return;
+    adminActionButton.disabled = true;
+    try {
+      const response = await fetch(route[0], { method: route[1] });
+      const result = await readJsonResponse(response);
+      if (!response.ok) throw new Error(result.error || "The admin action could not be completed.");
+      showToast(result.message);
+      window.location.reload();
+    } catch (error) {
+      showToast(error.message);
+      adminActionButton.disabled = false;
+    }
+    return;
+  }
+
   const favoriteButton = event.target.closest("[data-remove-favorite]");
   if (favoriteButton) {
     favoriteButton.disabled = true;
@@ -772,7 +999,16 @@ dashboardView?.addEventListener("click", async event => {
 });
 
 dashboardDialog?.addEventListener("submit", event => {
-  if (event.target.matches("[data-dashboard-form]")) {
+  if (event.target.matches("[data-admin-review]")) {
+    event.preventDefault();
+    const submitter = event.submitter;
+    if (!["approve", "reject"].includes(submitter?.value)) {
+      showToast("Choose whether to approve or reject this application.");
+      return;
+    }
+    event.target.dataset.action = submitter.value;
+    submitAdminReview(event.target);
+  } else if (event.target.matches("[data-dashboard-form]")) {
     event.preventDefault();
     submitDashboardForm(event.target);
   }
@@ -781,6 +1017,7 @@ dashboardDialog?.addEventListener("submit", event => {
 function showContentError(element, content) {
   if (!element) return;
   element.textContent = content;
+  element.classList.remove("is-loading");
   element.hidden = false;
 }
 
@@ -904,6 +1141,7 @@ async function loadPaymentPage() {
         if (!checkoutResponse.ok) throw new Error(checkoutResult.error || "Checkout could not be started.");
         window.location.assign(checkoutResult.url);
       } catch (error) {
+        showToast(error.message);
         showContentError(state, error.message);
         checkoutButton.disabled = false;
       }
@@ -914,6 +1152,7 @@ async function loadPaymentPage() {
 }
 
 async function loadHomeContent() {
+  if (["error", "login", "register"].includes(document.body.dataset.page)) return;
   if (document.body.dataset.page === "community") {
     await loadCommunityPage();
     return;
@@ -934,21 +1173,20 @@ async function loadHomeContent() {
     await loadPaymentPage();
     return;
   }
+  if (document.body.dataset.page === "classes") {
+    await loadClassesPage();
+    return;
+  }
   try {
-    const isClassesPage = document.body.dataset.page === "classes";
-    const response = await fetch(isClassesPage ? "/api/classes" : "/api/home");
+    const response = await fetch("/api/home");
     const result = await readJsonResponse(response);
     if (!response.ok) throw new Error(result.error || "Homepage content could not be loaded.");
-    const classes = isClassesPage ? result.classes || [] : result.featuredClasses || [];
+    const classes = result.featuredClasses || [];
     renderClasses(classes);
-    if (!isClassesPage) {
-      renderLatestPosts(result.latestPosts || []);
-      if (!result.latestPosts?.length) showContentError(postsState, "No community posts have been published yet.");
-    }
+    renderLatestPosts(result.latestPosts || []);
+    if (!result.latestPosts?.length) showContentError(postsState, "No community posts have been published yet.");
     if (!classes.length) {
-      showContentError(classesState, isClassesPage
-        ? "No approved classes are available right now."
-        : "No approved classes have been published yet.");
+      showContentError(classesState, "No approved classes have been published yet.");
     }
   } catch (error) {
     showContentError(classesState, error.message);
@@ -990,7 +1228,17 @@ function bindFilterButtons() {
 }
 bindFilterButtons();
 
-searchInput?.addEventListener("input", filterClasses);
+searchInput?.addEventListener("input", () => {
+  if (document.body.dataset.page !== "classes") {
+    filterClasses();
+    return;
+  }
+  window.clearTimeout(classesSearchTimer);
+  classesSearchTimer = window.setTimeout(() => {
+    classesPage = 1;
+    loadClassesPage();
+  }, 250);
+});
 
 document.querySelector("#class-detail-book")?.addEventListener("click", async () => {
   if (!currentPrivateClass) return;
@@ -1058,6 +1306,7 @@ const emailField = document.querySelector("#email-field");
 const passwordField = document.querySelector("#password-field");
 const messageField = document.querySelector("#message-field");
 const modalForm = document.querySelector("#modal-form");
+const googleSignInButton = document.querySelector("#google-sign-in");
 const toast = document.querySelector("#toast");
 let toastTimer;
 let activeModal = "join";
@@ -1196,6 +1445,40 @@ modalForm.addEventListener("submit", async event => {
   }
 });
 
+googleSignInButton?.addEventListener("click", async () => {
+  googleSignInButton.disabled = true;
+  try {
+    const returnTo = new URLSearchParams(window.location.search).get("returnTo");
+    const callbackURL = returnTo?.startsWith("/") && !returnTo.startsWith("//") && !returnTo.includes("\\")
+      ? new URL(returnTo, window.location.origin).toString()
+      : new URL("/dashboard", window.location.origin).toString();
+    const result = await authClient.signIn.social({ provider: "google", callbackURL });
+    if (result.error) throw new Error(result.error.message || "Google sign-in could not be started.");
+  } catch (error) {
+    modalDescription.textContent = error.message;
+    googleSignInButton.disabled = false;
+  }
+});
+
+async function configureGoogleSignIn() {
+  if (!googleSignInButton) return;
+  try {
+    const response = await fetch("/api/auth/config");
+    const result = await readJsonResponse(response);
+    if (!response.ok) throw new Error(result.error || "Authentication settings could not be loaded.");
+    googleSignInButton.hidden = !result.googleEnabled;
+  } catch (error) {
+    console.error("Google sign-in availability could not be loaded:", error.message);
+  }
+}
+configureGoogleSignIn();
+
+if (document.body.dataset.page === "login" && new URLSearchParams(window.location.search).get("auth") !== "login") {
+  openModal("signin");
+} else if (document.body.dataset.page === "register") {
+  openModal("join");
+}
+
 function showToast(message) {
   window.clearTimeout(toastTimer);
   toast.textContent = message;
@@ -1222,12 +1505,12 @@ if (new URLSearchParams(window.location.search).get("auth") === "login" && modal
 }
 const menuToggle = document.querySelector(".menu-toggle");
 const mainNav = document.querySelector(".main-nav");
-menuToggle.addEventListener("click", () => {
+menuToggle?.addEventListener("click", () => {
   const isOpen = mainNav.classList.toggle("open");
   menuToggle.setAttribute("aria-expanded", String(isOpen));
   menuToggle.setAttribute("aria-label", isOpen ? "Close navigation" : "Open navigation");
 });
-for (const link of mainNav.querySelectorAll("a")) {
+for (const link of mainNav?.querySelectorAll("a") || []) {
   link.addEventListener("click", () => {
     mainNav.classList.remove("open");
     menuToggle.setAttribute("aria-expanded", "false");
